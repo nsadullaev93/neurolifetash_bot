@@ -28,9 +28,12 @@ app.use(express.json());
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-app.use('/api', clientRoutes);
+// More specific prefixes must be registered before the broader '/api' mount —
+// otherwise Express routes any '/api/admin/*' request into clientRoutes first
+// (which requires Telegram auth) and adminRoutes never gets a chance to run.
 app.use('/api/admin', adminRoutes);
 app.use('/api/bot', botRoutes);
+app.use('/api', clientRoutes);
 
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);
