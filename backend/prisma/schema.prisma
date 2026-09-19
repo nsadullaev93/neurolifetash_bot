@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SessionStatus {
+  PLANNED
+  COMPLETED
+  MAKEUP
+  TRAINER_ABSENT
+  CHILD_SICK_CERT
+  CHILD_SICK_NO_CERT
+  CHILD_ABSENT
+  CLOSED_DAY
+  RESCHEDULED
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  telegramId   BigInt   @unique
+  firstName    String
+  lastName     String?
+  username     String?
+  phone        String?
+  isAdmin      Boolean  @default(false)
+  remindersOn  Boolean  @default(true)
+  reminderTime String   @default("19:00")
+  createdAt    DateTime @default(now())
+}
+
+model Level {
+  id        Int       @id @default(autoincrement())
+  code      String    @unique
+  name      String
+  rate      Int
+  trainers  Trainer[]
+  updatedAt DateTime  @updatedAt
+}
+
+model Trainer {
+  id              Int              @id @default(autoincrement())
+  name            String
+  levelId         Int
+  level           Level            @relation(fields: [levelId], references: [id])
+  isActive        Boolean          @default(true)
+  note            String?
+  slots           ScheduleSlot[]
+  plannedSessions Session[]        @relation("PlannedTrainer")
+  actualSessions  Session[]        @relation("ActualTrainer")
+  payments        MonthlyPayment[]
+  createdAt       DateTime         @default(now())
+}
+
+model ScheduleSlot {
+  id        Int      @id @default(autoincrement())
+  trainerId Int
+  trainer   Trainer  @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  weekday   Int
+  startTime String
+  endTime   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([trainerId, weekday, startTime])
+}
+
+model Session {
+  id                 Int           @id @default(autoincrement())
+  date               DateTime      @db.Date
+  year               Int
+  month              Int
+  startTime          String
+  endTime            String
+  plannedTrainerId   Int
+  plannedTrainer     Trainer       @relation("PlannedTrainer", fields: [plannedTrainerId], references: [id])
+  actualTrainerId    Int?
+  actualTrainer      Trainer?      @relation("ActualTrainer", fields: [actualTrainerId], references: [id])
+  status             SessionStatus @default(PLANNED)
+  note               String?
+  makeupForSessionId Int?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@unique([date, plannedTrainerId, startTime])
+  @@index([year, month])
+}
+
+model ClosedDay {
+  id    Int      @id @default(autoincrement())
+  date  DateTime @unique @db.Date
+  title String
+}
+
+model MonthlyPayment {
+  id           Int      @id @default(autoincrement())
+  year         Int
+  month        Int
+  trainerId    Int
+  trainer      Trainer  @relation(fields: [trainerId], references: [id])
+  paidSessions Int
+  rateSnapshot Int
+  totalAmount  Int
+  paidAt       DateTime @default(now())
+  note         String?
+
+  @@unique([year, month, trainerId])
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  entity    String
+  entityId  Int
+  action    String
+  oldValue  Json?
+  newValue  Json?
+  createdAt DateTime @default(now())
+}

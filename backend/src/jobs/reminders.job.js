@@ -1,0 +1,119 @@
+const cron = require('node-cron');
+const config = require('../config/default');
+const UserModel = require('../models/User');
+const SessionModel = require('../models/Session');
+const { webAppKeyboard } = require('../controllers/botController');
+const { generateMonth } = require('../services/monthGenerator.service');
+const { calculateForecast } = require('../services/forecast.service');
+const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
+const { formatMoney, formatMoneySigned } = require('../utils/money');
+const { todayDateOnly, currentHM, nowYearMonth, nowTz, isLastDayOfMonth, monthName } = require('../utils/date');
+
+function startReminderJobs(bot) {
+  // Every minute: send the "unmarked sessions today" reminder to any user
+  // whose personal reminderTime matches the current time in Tashkent.
+  cron.schedule(
+    '* * * * *',
+    async () => {
+      try {
+        const hm = currentHM();
+        const users = await UserModel.listAll();
+        const today = todayDateOnly();
+        const unmarkedCount = await SessionModel.countUnmarkedForDate(today);
+
+        if (unmarkedCount === 0) return;
+
+        for (const user of users) {
+          if (!user.remindersOn) continue;
+          if (user.reminderTime !== hm) continue;
+
+          await bot.telegram.sendMessage(
+            Number(user.telegramId),
+            `Отметьте занятия за сегодня: ${unmarkedCount} не отмечено.`,
+            webAppKeyboard(),
+          );
+        }
+      } catch (err) {
+        console.error('Ошибка ежедневного напоминания:', err.message);
+      }
+    },
+    { timezone: config.timezone },
+  );
+
+  // 1st day of the month, 09:00 — payment calculator for the new month.
+  cron.schedule(
+    '0 9 1 * *',
+    async () => {
+      try {
+        const { year, month } = nowYearMonth();
+        const forecast = await calculateForecast(year, month);
+        const users = await UserModel.listAll();
+
+        const lines = forecast.breakdown.map(
+          (b) => `${b.trainerName} (${b.levelName}) — ${b.plan} × ${formatMoney(b.rate)} = ${formatMoney(b.amount)}`,
+        );
+        const text =
+          `Расчёт оплаты на ${monthName(month)} ${year}:\n\n${lines.join('\n')}\n\n` +
+          `Итого: ${formatMoney(forecast.total)}\n\n` +
+          `Пожалуйста, оплатите до 7 числа.`;
+
+        for (const user of users) {
+          if (!user.remindersOn) continue;
+          await bot.telegram.sendMessage(Number(user.telegramId), text, webAppKeyboard('Открыть оплаты'));
+        }
+      } catch (err) {
+        console.error('Ошибка месячного напоминания об оплате:', err.message);
+      }
+    },
+    { timezone: config.timezone },
+  );
+
+  // Last day of the month, 20:00 — final reconciliation summary.
+  cron.schedule(
+    '0 20 * * *',
+    async () => {
+      try {
+        const n = nowTz();
+        if (!isLastDayOfMonth(n.year(), n.month() + 1, n.date())) return;
+
+        const { year, month } = nowYearMonth();
+        const report = await calculateMonthlyReconciliation(year, month);
+        const users = await UserModel.listAll();
+
+        const lines = report.rows.map((r) => {
+          const emoji = r.balance > 0 ? '🟢' : r.balance < 0 ? '🔴' : '⚪';
+          return `${emoji} ${r.trainerName} — ${formatMoneySigned(r.balance)}`;
+        });
+        const totalEmoji = report.total > 0 ? '🟢' : report.total < 0 ? '🔴' : '⚪';
+        const text =
+          `Итоговая сверка за ${monthName(month)} ${year}:\n\n${lines.join('\n')}\n\n` +
+          `${totalEmoji} Общий итог: ${formatMoneySigned(report.total)}`;
+
+        for (const user of users) {
+          if (!user.remindersOn) continue;
+          await bot.telegram.sendMessage(Number(user.telegramId), text, webAppKeyboard('Открыть отчёт'));
+        }
+      } catch (err) {
+        console.error('Ошибка итоговой сверки месяца:', err.message);
+      }
+    },
+    { timezone: config.timezone },
+  );
+
+  // Daily at 00:05 — make sure the current month's sessions exist
+  // (idempotent, safe to run repeatedly; also covers schedule template changes).
+  cron.schedule(
+    '5 0 * * *',
+    async () => {
+      try {
+        const { year, month } = nowYearMonth();
+        await generateMonth(year, month);
+      } catch (err) {
+        console.error('Ошибка автогенерации месяца:', err.message);
+      }
+    },
+    { timezone: config.timezone },
+  );
+}
+
+module.exports = { startReminderJobs };

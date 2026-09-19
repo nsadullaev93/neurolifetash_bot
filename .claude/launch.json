@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "backend", "start"],
+      "port": 3000
+    },
+    {
+      "name": "miniapp",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "miniapp", "start"],
+      "port": 5173
+    },
+    {
+      "name": "admin-panel",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "admin-panel", "start"],
+      "port": 5174
+    },
+    {
+      "name": "ngrok",
+      "runtimeExecutable": "ngrok",
+      "runtimeArgs": ["http", "5173", "--log=stdout"],
+      "port": 4040
+    }
+  ]
+}
