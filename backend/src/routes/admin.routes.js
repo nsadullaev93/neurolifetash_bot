@@ -25,6 +25,7 @@ router.get('/schedule-slots', adminController.listSlots);
 router.post('/schedule-slots', adminController.createSlot);
 router.patch('/schedule-slots/:id', adminController.updateSlot);
 router.delete('/schedule-slots/:id', adminController.deleteSlot);
+router.post('/schedule-slots/apply-from-date', adminController.applyScheduleFromDate);
 
 router.get('/sessions', adminController.listSessions);
 router.post('/sessions', adminController.createSession);

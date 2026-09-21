@@ -8,7 +8,7 @@ const ClosedDayModel = require('../models/ClosedDay');
 const PaymentModel = require('../models/Payment');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
-const { generateMonth } = require('../services/monthGenerator.service');
+const { generateMonth, regenerateFromDate } = require('../services/monthGenerator.service');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
 const { calculateForecast } = require('../services/forecast.service');
 const { getMonthlyReport, exportMonthlyXlsx } = require('../services/report.service');
@@ -437,6 +437,22 @@ async function generateMonthHandler(req, res, next) {
   }
 }
 
+// «Применить с даты…» на странице «Шаблон расписания» (ТЗ v2, §2.18) —
+// пересоздаёт будущие ещё не отмеченные занятия по обновлённому шаблону;
+// уже отмеченные занятия не трогает.
+async function applyScheduleFromDate(req, res, next) {
+  try {
+    const { date } = req.body;
+    if (!date) return res.status(400).json({ error: 'Укажите date (YYYY-MM-DD)' });
+    const [y, m, d] = date.split('-').map(Number);
+    const result = await regenerateFromDate(dateOnly(y, m, d));
+    await logAudit('ScheduleSlot', 0, 'apply-from-date', null, { date, ...result });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ---------- reports ----------
 
 async function monthlyReport(req, res, next) {
@@ -493,6 +509,7 @@ module.exports = {
   createSlot,
   updateSlot,
   deleteSlot,
+  applyScheduleFromDate,
   listSessions,
   createSession,
   updateSession,
