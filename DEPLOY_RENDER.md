@@ -60,13 +60,13 @@ Backend — это не просто API, а ещё Telegram-бот (посто�
 В разделе **Environment Variables** добавьте (кнопка **Add Environment Variable**) — по одной на каждую строку:
 
 ```
-DATABASE_URL = postgresql://neondb_owner:npg_wWU6DT7KJgYe@ep-old-night-b3h00qje-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+DATABASE_URL = <строка подключения к Neon — Neon Dashboard → Connection Details>
 
-BOT_TOKEN = 8947126653:AAGZmMG0HHOu33mGJj5v3hE7HgbAcxWkODE
+BOT_TOKEN = <токен бота — @BotFather → /mybots → выбрать бота → API Token>
 
-ADMIN_PASSWORD = admin123
+ADMIN_PASSWORD = <свой пароль для входа в Admin Panel>
 
-JWT_SECRET = 41fd0c24c5fe3a3ba9c84a4bee4fcb0850c59e3a86bc7b2d8709540cd514ab24
+JWT_SECRET = <случайная строка, например: openssl rand -hex 32>
 
 WEBAPP_URL = https://miniapp-seven-nu.vercel.app
 
@@ -76,6 +76,8 @@ TZ = Asia/Tashkent
 
 ALLOW_DEV_LOGIN = false
 ```
+
+Реальные значения — только в Environment Variables на Render, не в файлах репозитория (репозиторий публичный).
 
 **Не добавляйте `PORT`** — Render назначает порт сам и передаёт его автоматически, сервер уже настроен это учитывать.
 
