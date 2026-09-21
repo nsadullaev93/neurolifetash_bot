@@ -10,13 +10,24 @@ const { computePlanByTrainer } = require('./forecast.service');
 async function calculateMonthlyReconciliation(year, month) {
   const planByTrainer = await computePlanByTrainer(year, month);
   const payments = await PaymentModel.listForMonth(year, month);
-  const paymentByTrainer = new Map(payments.map((p) => [p.trainerId, p]));
+
+  // За месяц одному специалисту может быть несколько оплат (ТЗ v2, §2.10):
+  // P — их сумма, S — ставка-снимок ПЕРВОЙ по времени оплаты месяца.
+  const paymentsByTrainer = new Map();
+  for (const p of payments) {
+    if (!paymentsByTrainer.has(p.trainerId)) paymentsByTrainer.set(p.trainerId, []);
+    paymentsByTrainer.get(p.trainerId).push(p);
+  }
+  for (const list of paymentsByTrainer.values()) {
+    list.sort((a, b) => new Date(a.paidAt) - new Date(b.paidAt));
+  }
 
   const rows = [];
   for (const { trainer, plan } of planByTrainer) {
-    const payment = paymentByTrainer.get(trainer.id);
-    const P = payment ? payment.paidSessions : 0;
-    const S = payment ? payment.rateSnapshot : trainer.level.rate;
+    const trainerPayments = paymentsByTrainer.get(trainer.id) || [];
+    const hasPayment = trainerPayments.length > 0;
+    const P = trainerPayments.reduce((sum, p) => sum + p.paidSessions, 0);
+    const S = hasPayment ? trainerPayments[0].rateSnapshot : trainer.level.rate;
     const C = await SessionModel.countCompletedForTrainerMonth(trainer.id, year, month);
     const balance = (P - C) * S;
 
@@ -34,7 +45,7 @@ async function calculateMonthlyReconciliation(year, month) {
       paid: P,
       completed: C,
       balance,
-      hasPayment: !!payment,
+      hasPayment,
       overpayWarning,
     });
   }

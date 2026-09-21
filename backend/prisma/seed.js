@@ -8,6 +8,8 @@ const LEVELS = [
   { code: 'SENIOR', name: 'Старший', rate: 380000 },
 ];
 
+const TRAINER_COLORS = ['#E4572E', '#2E86AB', '#6A994E', '#9B5DE5', '#F4A261', '#3A86FF'];
+
 // weekday: 1=Пн, 2=Вт, 3=Ср, 4=Чт, 5=Пт
 const TRAINERS = [
   {
@@ -45,7 +47,26 @@ function daysInMonth(year, month) {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
-async function generateCurrentMonthSessions() {
+// Схема рассчитана на несколько семей на будущее (ТЗ v2, §3), но
+// регистрация новых не делается — сидируется всегда ровно одна Family
+// и один Child (см. миграцию 20260921150000_add_family_v2).
+async function ensureFamilyAndChild() {
+  let family = await prisma.family.findFirst();
+  if (!family) {
+    family = await prisma.family.create({ data: { name: 'Семья' } });
+    console.log('Создана семья');
+  }
+
+  let child = await prisma.child.findFirst({ where: { familyId: family.id } });
+  if (!child) {
+    child = await prisma.child.create({ data: { familyId: family.id, name: 'Ребёнок' } });
+    console.log('Создан ребёнок');
+  }
+
+  return { family, child };
+}
+
+async function generateCurrentMonthSessions(childId) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -68,7 +89,8 @@ async function generateCurrentMonthSessions() {
     for (const slot of slotsToday) {
       const existing = await prisma.session.findUnique({
         where: {
-          date_plannedTrainerId_startTime: {
+          childId_date_plannedTrainerId_startTime: {
+            childId,
             date,
             plannedTrainerId: slot.trainerId,
             startTime: slot.startTime,
@@ -79,6 +101,7 @@ async function generateCurrentMonthSessions() {
 
       await prisma.session.create({
         data: {
+          childId,
           date,
           year,
           month,
@@ -98,22 +121,30 @@ async function generateCurrentMonthSessions() {
 async function main() {
   console.log('Заполнение базы данных начальными данными...');
 
+  const { family, child } = await ensureFamilyAndChild();
+
   const levelByCode = {};
   for (const level of LEVELS) {
     const saved = await prisma.level.upsert({
-      where: { code: level.code },
+      where: { familyId_code: { familyId: family.id, code: level.code } },
       update: { name: level.name, rate: level.rate },
-      create: level,
+      create: { ...level, familyId: family.id },
     });
     levelByCode[level.code] = saved;
   }
   console.log(`Уровни готовы: ${LEVELS.map((l) => l.name).join(', ')}`);
 
-  for (const t of TRAINERS) {
-    let trainer = await prisma.trainer.findFirst({ where: { name: t.name } });
+  for (const [index, t] of TRAINERS.entries()) {
+    let trainer = await prisma.trainer.findFirst({ where: { familyId: family.id, name: t.name } });
     if (!trainer) {
       trainer = await prisma.trainer.create({
-        data: { name: t.name, levelId: levelByCode[t.levelCode].id, isActive: true },
+        data: {
+          familyId: family.id,
+          name: t.name,
+          levelId: levelByCode[t.levelCode].id,
+          color: TRAINER_COLORS[index % TRAINER_COLORS.length],
+          isActive: true,
+        },
       });
       console.log(`Создан специалист: ${t.name}`);
     }
@@ -121,8 +152,9 @@ async function main() {
     for (const slot of t.slots) {
       await prisma.scheduleSlot.upsert({
         where: {
-          trainerId_weekday_startTime: {
+          trainerId_childId_weekday_startTime: {
             trainerId: trainer.id,
+            childId: child.id,
             weekday: slot.weekday,
             startTime: slot.startTime,
           },
@@ -130,6 +162,7 @@ async function main() {
         update: { endTime: slot.endTime, isActive: true },
         create: {
           trainerId: trainer.id,
+          childId: child.id,
           weekday: slot.weekday,
           startTime: slot.startTime,
           endTime: slot.endTime,
@@ -140,7 +173,7 @@ async function main() {
   }
   console.log('Расписание специалистов готово');
 
-  await generateCurrentMonthSessions();
+  await generateCurrentMonthSessions(child.id);
 
   console.log('Готово!');
 }

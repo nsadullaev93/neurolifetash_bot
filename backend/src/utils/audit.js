@@ -1,9 +1,13 @@
 const prisma = require('../database/connection');
+const { getFamilyId } = require('./scope');
 
-async function logAudit(entity, entityId, action, oldValue, newValue) {
+async function logAudit(entity, entityId, action, oldValue, newValue, userId) {
   try {
+    const familyId = await getFamilyId();
     await prisma.auditLog.create({
       data: {
+        familyId,
+        userId: userId ?? null,
         entity,
         entityId: Number(entityId),
         action,

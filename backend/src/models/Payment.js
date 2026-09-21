@@ -22,9 +22,11 @@ async function listAll() {
   });
 }
 
-async function findByYearMonthTrainer(year, month, trainerId) {
-  return prisma.monthlyPayment.findUnique({
-    where: { year_month_trainerId: { year, month, trainerId: Number(trainerId) } },
+// Несколько оплат одному специалисту за месяц теперь допустимы (ТЗ v2, §2.10),
+// поэтому уникального ключа больше нет — возвращает список, не одну запись.
+async function listForYearMonthTrainer(year, month, trainerId) {
+  return prisma.monthlyPayment.findMany({
+    where: { year, month, trainerId: Number(trainerId) },
   });
 }
 
@@ -52,7 +54,7 @@ module.exports = {
   listForMonth,
   listForTrainer,
   listAll,
-  findByYearMonthTrainer,
+  listForYearMonthTrainer,
   findById,
   create,
   update,

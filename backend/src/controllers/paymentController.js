@@ -50,11 +50,8 @@ async function create(req, res, next) {
     const trainer = await TrainerModel.findById(trainerId);
     if (!trainer) return res.status(400).json({ error: 'Специалист не найден' });
 
-    const existing = await PaymentModel.findByYearMonthTrainer(year, month, trainerId);
-    if (existing) {
-      return res.status(409).json({ error: 'Оплата за этот месяц уже внесена, используйте редактирование' });
-    }
-
+    // За месяц одному специалисту можно внести несколько оплат (ТЗ v2, §2.10) —
+    // формула сверки их суммирует, поэтому повторная оплата не блокируется.
     const rateSnapshot = trainer.level.rate;
     const total = totalAmount !== undefined ? totalAmount : paidSessions * rateSnapshot;
 

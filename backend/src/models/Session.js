@@ -1,5 +1,6 @@
 const prisma = require('../database/connection');
 const { getMonthDateList } = require('../utils/date');
+const { getChildId } = require('../utils/scope');
 
 const includeTrainers = {
   plannedTrainer: { include: { level: true } },
@@ -51,7 +52,8 @@ async function update(id, data) {
 }
 
 async function create(data) {
-  return prisma.session.create({ data, include: includeTrainers });
+  const childId = await getChildId();
+  return prisma.session.create({ data: { ...data, childId }, include: includeTrainers });
 }
 
 async function remove(id) {

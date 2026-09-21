@@ -1,7 +1,9 @@
 const prisma = require('../database/connection');
+const { getFamilyId } = require('../utils/scope');
 
 async function listAll() {
-  return prisma.level.findMany({ orderBy: { rate: 'asc' } });
+  const familyId = await getFamilyId();
+  return prisma.level.findMany({ where: { familyId }, orderBy: { rate: 'asc' } });
 }
 
 async function findById(id) {
@@ -9,7 +11,8 @@ async function findById(id) {
 }
 
 async function create(data) {
-  return prisma.level.create({ data });
+  const familyId = await getFamilyId();
+  return prisma.level.create({ data: { ...data, familyId } });
 }
 
 async function update(id, data) {

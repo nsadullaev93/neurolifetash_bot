@@ -1,5 +1,6 @@
 const prisma = require('../database/connection');
 const { getMonthDateList } = require('../utils/date');
+const { getFamilyId } = require('../utils/scope');
 
 async function listAll() {
   return prisma.closedDay.findMany({ orderBy: { date: 'asc' } });
@@ -15,12 +16,16 @@ async function listForMonth(year, month) {
 
 // dateOnlyValue must be a UTC-midnight Date, see utils/date.js
 async function isClosed(dateOnlyValue) {
-  const found = await prisma.closedDay.findUnique({ where: { date: dateOnlyValue } });
+  const familyId = await getFamilyId();
+  const found = await prisma.closedDay.findUnique({
+    where: { familyId_date: { familyId, date: dateOnlyValue } },
+  });
   return !!found;
 }
 
 async function create(data) {
-  return prisma.closedDay.create({ data });
+  const familyId = await getFamilyId();
+  return prisma.closedDay.create({ data: { ...data, familyId } });
 }
 
 async function remove(id) {

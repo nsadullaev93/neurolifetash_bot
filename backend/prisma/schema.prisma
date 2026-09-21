@@ -25,41 +25,125 @@ enum AccessStatus {
   REJECTED
 }
 
+enum MemberRole {
+  OWNER
+  MEMBER
+}
+
+enum HolidayStatus {
+  UNKNOWN
+  OPEN
+  CLOSED
+}
+
+enum SettlementStatus {
+  OPEN
+  PAID_SEPARATELY
+  CARRIED_OVER
+  CLOSED
+}
+
+// ---------- Семья, дети, участники (ТЗ v2, §2.14, §3) ----------
+// Сейчас в системе ровно одна Family и один Child (см. backend/src/utils/scope.js).
+// Схема готова к нескольким семьям на будущее, регистрация новых — не делается.
+
+model Family {
+  id         Int            @id @default(autoincrement())
+  name       String         @default("Семья")
+  members    FamilyMember[]
+  children   Child[]
+  levels     Level[]
+  trainers   Trainer[]
+  holidays   Holiday[]
+  closedDays ClosedDay[]
+  invites    Invite[]
+  createdAt  DateTime       @default(now())
+}
+
+model Child {
+  id            Int            @id @default(autoincrement())
+  familyId      Int
+  family        Family         @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  name          String         @default("Ребёнок")
+  isActive      Boolean        @default(true)
+  scheduleSlots ScheduleSlot[]
+  sessions      Session[]
+}
+
 model User {
-  id                      Int          @id @default(autoincrement())
-  telegramId              BigInt       @unique
+  id                      Int            @id @default(autoincrement())
+  telegramId              BigInt         @unique
   firstName               String
   lastName                String?
   username                String?
   phone                   String?
-  isAdmin                 Boolean      @default(false)
-  remindersOn             Boolean      @default(true)
-  reminderTime            String       @default("19:00")
-  accessStatus            AccessStatus @default(PENDING)
+  isAdmin                 Boolean        @default(false)
+  remindersOn             Boolean        @default(true)
+  reminderTime            String         @default("19:00")
+  accessStatus            AccessStatus   @default(PENDING)
   accessRequestNotifiedAt DateTime?
-  createdAt               DateTime     @default(now())
+  memberships             FamilyMember[]
+  createdAt               DateTime       @default(now())
 }
+
+model FamilyMember {
+  id           Int        @id @default(autoincrement())
+  familyId     Int
+  family       Family     @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  userId       Int
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         MemberRole @default(MEMBER)
+  displayName  String // «Папа», «Бабушка» — как подписывать отметки
+  canSeeMoney  Boolean    @default(false) // для MEMBER; у OWNER всегда true
+  sessionPings Boolean    @default(true) // получать сообщения после занятий
+  paymentPings Boolean    @default(true) // напоминания об оплате (только если видит деньги)
+  theme        String     @default("light") // "light" | "dark"
+  joinedAt     DateTime   @default(now())
+
+  @@unique([familyId, userId])
+}
+
+model Invite {
+  id          Int        @id @default(autoincrement())
+  familyId    Int
+  family      Family     @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  code        String     @unique // t.me/<bot>?start=inv_<code>
+  role        MemberRole @default(MEMBER)
+  expiresAt   DateTime // 24 часа
+  usedAt      DateTime?
+  createdById Int
+}
+
+// ---------- Специалисты и расписание ----------
 
 model Level {
   id        Int       @id @default(autoincrement())
-  code      String    @unique
+  familyId  Int
+  family    Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  code      String
   name      String
   rate      Int
   trainers  Trainer[]
   updatedAt DateTime  @updatedAt
+
+  @@unique([familyId, code])
 }
 
 model Trainer {
   id              Int              @id @default(autoincrement())
+  familyId        Int
+  family          Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
   name            String
   levelId         Int
   level           Level            @relation(fields: [levelId], references: [id])
+  color           String // постоянный цвет в интерфейсе, напр. "#E4572E"
   isActive        Boolean          @default(true)
   note            String?
   slots           ScheduleSlot[]
   plannedSessions Session[]        @relation("PlannedTrainer")
   actualSessions  Session[]        @relation("ActualTrainer")
   payments        MonthlyPayment[]
+  settlements     Settlement[]
   createdAt       DateTime         @default(now())
 }
 
@@ -67,17 +151,23 @@ model ScheduleSlot {
   id        Int      @id @default(autoincrement())
   trainerId Int
   trainer   Trainer  @relation(fields: [trainerId], references: [id], onDelete: Cascade)
-  weekday   Int
+  childId   Int
+  child     Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+  weekday   Int // 1=Пн ... 5=Пт
   startTime String
   endTime   String
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  @@unique([trainerId, weekday, startTime])
+  @@unique([trainerId, childId, weekday, startTime])
 }
+
+// ---------- Занятия ----------
 
 model Session {
   id                 Int           @id @default(autoincrement())
+  childId            Int
+  child              Child         @relation(fields: [childId], references: [id], onDelete: Cascade)
   date               DateTime      @db.Date
   year               Int
   month              Int
@@ -90,36 +180,91 @@ model Session {
   status             SessionStatus @default(PLANNED)
   note               String?
   makeupForSessionId Int?
+  markedByUserId     Int? // кто отметил (§2.14)
+  markedAt           DateTime?
+  notes              SessionNote[]
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  @@unique([date, plannedTrainerId, startTime])
-  @@index([year, month])
+  @@unique([childId, date, plannedTrainerId, startTime])
+  @@index([childId, year, month])
+}
+
+// ---------- Праздники и закрытые дни ----------
+
+model Holiday {
+  id       Int           @id @default(autoincrement())
+  familyId Int
+  family   Family        @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  date     DateTime      @db.Date
+  title    String
+  status   HolidayStatus @default(UNKNOWN)
+
+  @@unique([familyId, date])
 }
 
 model ClosedDay {
-  id    Int      @id @default(autoincrement())
-  date  DateTime @unique @db.Date
-  title String
+  id       Int      @id @default(autoincrement())
+  familyId Int
+  family   Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  date     DateTime @db.Date
+  title    String
+
+  @@unique([familyId, date])
 }
 
+// ---------- Деньги ----------
+
 model MonthlyPayment {
-  id           Int      @id @default(autoincrement())
-  year         Int
-  month        Int
-  trainerId    Int
-  trainer      Trainer  @relation(fields: [trainerId], references: [id])
-  paidSessions Int
-  rateSnapshot Int
-  totalAmount  Int
-  paidAt       DateTime @default(now())
-  note         String?
+  id              Int      @id @default(autoincrement())
+  year            Int
+  month           Int
+  trainerId       Int
+  trainer         Trainer  @relation(fields: [trainerId], references: [id])
+  paidSessions    Int
+  rateSnapshot    Int
+  totalAmount     Int
+  paidAt          DateTime @default(now())
+  enteredByUserId Int?
+  note            String?
+
+  // Уникальности нет: за месяц одному специалисту может быть несколько оплат (§2.10)
+  @@index([year, month, trainerId])
+}
+
+model Settlement {
+  id              Int              @id @default(autoincrement())
+  year            Int
+  month           Int
+  trainerId       Int
+  trainer         Trainer          @relation(fields: [trainerId], references: [id])
+  balance         Int // (P − C) × S на момент закрытия месяца
+  centerConducted Int?
+  agreedConducted Int?
+  status          SettlementStatus @default(OPEN)
+  paidAmount      Int? // для PAID_SEPARATELY
+  paidAt          DateTime?
+  carriedToYear   Int? // для CARRIED_OVER
+  carriedToMonth  Int?
+  updatedAt       DateTime         @updatedAt
 
   @@unique([year, month, trainerId])
 }
 
+model SessionNote {
+  id           Int      @id @default(autoincrement())
+  sessionId    Int
+  session      Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  authorUserId Int
+  text         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model AuditLog {
   id        Int      @id @default(autoincrement())
+  familyId  Int
+  userId    Int?
   entity    String
   entityId  Int
   action    String

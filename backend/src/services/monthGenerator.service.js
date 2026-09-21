@@ -2,10 +2,13 @@ const prisma = require('../database/connection');
 const ScheduleSlotModel = require('../models/ScheduleSlot');
 const ClosedDayModel = require('../models/ClosedDay');
 const { getMonthDateList, isoWeekday } = require('../utils/date');
+const { getChildId } = require('../utils/scope');
 
 // Idempotent: only creates sessions that don't already exist for the
-// (date, plannedTrainerId, startTime) key. Existing sessions are never touched.
+// (childId, date, plannedTrainerId, startTime) key. Existing sessions are
+// never touched.
 async function generateMonth(year, month) {
+  const childId = await getChildId();
   const slots = await ScheduleSlotModel.listActive();
   const closedDays = await ClosedDayModel.listForMonth(year, month);
   const closedSet = new Set(closedDays.map((c) => c.date.toISOString().slice(0, 10)));
@@ -23,7 +26,8 @@ async function generateMonth(year, month) {
     for (const slot of slotsToday) {
       const existing = await prisma.session.findUnique({
         where: {
-          date_plannedTrainerId_startTime: {
+          childId_date_plannedTrainerId_startTime: {
+            childId,
             date,
             plannedTrainerId: slot.trainerId,
             startTime: slot.startTime,
@@ -38,6 +42,7 @@ async function generateMonth(year, month) {
 
       await prisma.session.create({
         data: {
+          childId,
           date,
           year,
           month,

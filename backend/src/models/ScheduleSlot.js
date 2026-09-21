@@ -1,4 +1,5 @@
 const prisma = require('../database/connection');
+const { getChildId } = require('../utils/scope');
 
 async function listAll() {
   return prisma.scheduleSlot.findMany({
@@ -19,7 +20,8 @@ async function findById(id) {
 }
 
 async function create(data) {
-  return prisma.scheduleSlot.create({ data });
+  const childId = await getChildId();
+  return prisma.scheduleSlot.create({ data: { ...data, childId } });
 }
 
 async function update(id, data) {
