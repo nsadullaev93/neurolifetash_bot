@@ -79,22 +79,48 @@ function calcPlan({ year, month, trainerId, slots, closedDays = [] }) {
   return plan;
 }
 
-/** Баланс по одному специалисту: (P − C) × S. */
-function reconcileTrainer({ paidSessions, rateSnapshot, conducted, fallbackRate }) {
+/**
+ * Баланс по одному специалисту: (P − C) × S.
+ * Если с центром согласовано другое количество (agreedConducted) — деньги считаются по нему.
+ */
+function reconcileTrainer({
+  paidSessions,
+  rateSnapshot,
+  conducted,
+  fallbackRate,
+  centerConducted,
+  agreedConducted,
+}) {
   assertNonNegativeInt(paidSessions, 'Оплачено занятий');
   assertNonNegativeInt(conducted, 'Проведено занятий');
+  if (centerConducted != null) assertNonNegativeInt(centerConducted, 'По данным центра');
+  if (agreedConducted != null) assertNonNegativeInt(agreedConducted, 'Согласовано');
 
   const rate = paidSessions > 0 ? rateSnapshot : rateSnapshot ?? fallbackRate;
   assertNonNegativeInt(rate, 'Ставка');
 
-  const diff = paidSessions - conducted;
+  const billable = agreedConducted ?? conducted;
+  const diff = paidSessions - billable;
   const balance = diff * rate;
+  const mismatch = centerConducted != null && centerConducted !== conducted;
 
   let direction = 'EVEN';
   if (balance > 0) direction = 'REFUND'; // центр возвращает деньгами
   if (balance < 0) direction = 'SURCHARGE'; // родитель доплачивает
 
-  return { paid: paidSessions, conducted, diff, rate, balance, direction };
+  return {
+    paid: paidSessions,
+    conducted,
+    centerConducted: centerConducted ?? null,
+    agreedConducted: agreedConducted ?? null,
+    mismatch,
+    // спор открыт: цифры расходятся, а решение ещё не принято
+    disputeOpen: mismatch && agreedConducted == null,
+    diff,
+    rate,
+    balance,
+    direction,
+  };
 }
 
 /** Предупреждение о переплате (ТЗ, п. 2.6). */
@@ -110,18 +136,32 @@ function overpaymentWarning({ paidSessions, plan, rate }) {
  * payments: [{ trainerId, year, month, paidSessions, rateSnapshot }]
  * sessions: [{ date, plannedTrainerId, actualTrainerId?, status }]
  */
-function reconcileMonth({ year, month, trainers, payments, sessions, slots = [], closedDays = [] }) {
+function reconcileMonth({
+  year,
+  month,
+  trainers,
+  payments,
+  sessions,
+  slots = [],
+  closedDays = [],
+  centerFigures = [], // [{ trainerId, centerConducted, agreedConducted? }]
+}) {
   const rows = trainers
     .map((t) => {
-      const payment = payments.find(
+      // За месяц одному специалисту может быть несколько оплат — суммируем
+      const monthPayments = payments.filter(
         (p) => p.trainerId === t.id && p.year === year && p.month === month
       );
+      const paidSessions = monthPayments.reduce((sum, p) => sum + p.paidSessions, 0);
       const conducted = countConducted(sessions, t.id, year, month);
+      const figure = centerFigures.find((f) => f.trainerId === t.id);
       const row = reconcileTrainer({
-        paidSessions: payment ? payment.paidSessions : 0,
-        rateSnapshot: payment ? payment.rateSnapshot : undefined,
+        paidSessions,
+        rateSnapshot: monthPayments.length ? monthPayments[0].rateSnapshot : undefined,
         conducted,
         fallbackRate: t.levelRate,
+        centerConducted: figure?.centerConducted,
+        agreedConducted: figure?.agreedConducted,
       });
       const plan = calcPlan({ year, month, trainerId: t.id, slots, closedDays });
       return {

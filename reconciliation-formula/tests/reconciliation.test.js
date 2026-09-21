@@ -278,12 +278,76 @@ describe('Пропуски, отработки, подмены', () => {
     assert.equal(report.rows.find((r) => r.trainerId === LI).balance, -277000);
   });
 
+  it('несколько оплат одному специалисту за месяц суммируются', () => {
+    const report = reconcileMonth({
+      year: 2026,
+      month: 10,
+      trainers: TRAINERS,
+      payments: [payment(LIU_HEWANG, 8, RATE.SENIOR), payment(LIU_HEWANG, 5, RATE.SENIOR)],
+      sessions: generateSessions(2026, 10),
+    });
+    const r = report.rows.find((x) => x.trainerId === LIU_HEWANG);
+    assert.equal(r.paid, 13);
+    assert.equal(r.balance, 0);
+  });
+
   it('специалист без оплаты и без занятий в отчёт не попадает', () => {
     const report = reconcileMonth({
       year: 2026, month: 10, trainers: TRAINERS,
       payments: [payment(LI, 1, RATE.MIDDLE)], sessions: [],
     });
     assert.deepEqual(report.rows.map((r) => r.trainerId), [LI]);
+  });
+});
+
+describe('Сравнение с цифрами центра', () => {
+  const base = { paidSessions: 20, rateSnapshot: 277000, conducted: 21 };
+
+  it('цифры совпали — расхождения нет', () => {
+    const r = reconcileTrainer({ ...base, centerConducted: 21 });
+    assert.equal(r.mismatch, false);
+    assert.equal(r.disputeOpen, false);
+    assert.equal(r.balance, -277000);
+  });
+
+  it('цифры разошлись — спор открыт, деньги пока по нашему учёту', () => {
+    const r = reconcileTrainer({ ...base, centerConducted: 22 });
+    assert.equal(r.mismatch, true);
+    assert.equal(r.disputeOpen, true);
+    assert.equal(r.balance, -277000);
+  });
+
+  it('приняли цифру центра — деньги по согласованному', () => {
+    const r = reconcileTrainer({ ...base, centerConducted: 22, agreedConducted: 22 });
+    assert.equal(r.disputeOpen, false);
+    assert.equal(r.balance, -554000);
+  });
+
+  it('оставили свою цифру — деньги по нашему учёту, спор закрыт', () => {
+    const r = reconcileTrainer({ ...base, centerConducted: 22, agreedConducted: 21 });
+    assert.equal(r.disputeOpen, false);
+    assert.equal(r.balance, -277000);
+  });
+
+  it('цифры центра передаются в месячную сверку', () => {
+    const report = reconcileMonth({
+      year: 2026,
+      month: 10,
+      trainers: TRAINERS,
+      payments: PAID_20_EACH,
+      sessions: generateSessions(2026, 10),
+      centerFigures: [{ trainerId: LI, centerConducted: 21 }],
+    });
+    const li = report.rows.find((r) => r.trainerId === LI);
+    const usmon = report.rows.find((r) => r.trainerId === USMON);
+    assert.equal(li.mismatch, true);
+    assert.equal(li.centerConducted, 21);
+    assert.equal(usmon.centerConducted, null);
+    assert.equal(usmon.mismatch, false);
+  });
+
+  it('некорректная цифра центра вызывает ошибку', () => {
+    assert.throws(() => reconcileTrainer({ ...base, centerConducted: -1 }));
   });
 });
 
