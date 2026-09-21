@@ -389,12 +389,7 @@ async function createClosedDay(req, res, next) {
     const [y, m, d] = date.split('-').map(Number);
     const dateValue = dateOnly(y, m, d);
 
-    const created = await ClosedDayModel.create({ date: dateValue, title: title || 'Праздник' });
-
-    await prisma.session.updateMany({
-      where: { date: dateValue, status: 'PLANNED' },
-      data: { status: 'CLOSED_DAY' },
-    });
+    const created = await ClosedDayModel.createAndCancelSessions(dateValue, title || 'Праздник');
 
     res.status(201).json(created);
   } catch (err) {

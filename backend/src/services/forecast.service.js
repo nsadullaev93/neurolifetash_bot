@@ -2,6 +2,7 @@ const TrainerModel = require('../models/Trainer');
 const ClosedDayModel = require('../models/ClosedDay');
 const SettlementModel = require('../models/Settlement');
 const PaymentModel = require('../models/Payment');
+const HolidayModel = require('../models/Holiday');
 const { getMonthDateList, isoWeekday, prevMonthOf } = require('../utils/date');
 
 // Перенесённые расчёты ПРЕДЫДУЩЕГО месяца (ТЗ v2, §2.7, §2.9). Переплата
@@ -100,4 +101,30 @@ async function calculatePaymentStatus(year, month) {
   return { year, month, rows };
 }
 
-module.exports = { computePlanByTrainer, calculateForecast, calculatePaymentStatus };
+// Неподтверждённые праздники (UNKNOWN) месяца, попадающие на будний день, и
+// на сколько уменьшится "к оплате", если центр в этот день окажется закрыт
+// (ТЗ v2, §2.13). Праздник считается рабочим днём, пока не подтверждено
+// обратное — это только предупреждение, план (§2.6) не меняется.
+async function getUnconfirmedHolidayWarnings(year, month) {
+  const holidays = await HolidayModel.listForMonth(year, month);
+  const unknownWeekdayHolidays = holidays.filter((h) => h.status === 'UNKNOWN' && isoWeekday(h.date) <= 5);
+  if (unknownWeekdayHolidays.length === 0) return [];
+
+  const trainers = await TrainerModel.listAll({ onlyActive: true });
+
+  return unknownWeekdayHolidays.map((h) => {
+    const weekday = isoWeekday(h.date);
+    const impact = trainers.reduce((sum, t) => {
+      const slotsThatDay = t.slots.filter((s) => s.isActive && s.weekday === weekday).length;
+      return sum + slotsThatDay * t.level.rate;
+    }, 0);
+    return { date: h.date, title: h.title, impact };
+  });
+}
+
+module.exports = {
+  computePlanByTrainer,
+  calculateForecast,
+  calculatePaymentStatus,
+  getUnconfirmedHolidayWarnings,
+};

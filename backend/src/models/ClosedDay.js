@@ -32,4 +32,16 @@ async function remove(id) {
   return prisma.closedDay.delete({ where: { id: Number(id) } });
 }
 
-module.exports = { listAll, listForMonth, isClosed, create, remove };
+// Создаёт ClosedDay и переводит ещё не отмеченные занятия этого дня в
+// CLOSED_DAY — общая логика для Admin Panel, праздничного диалога бота
+// (§2.13) и будущей кнопки «Сегодня не идём» → «Центр закрыт» (§2.13, §7.1).
+async function createAndCancelSessions(dateOnlyValue, title) {
+  const closedDay = await create({ date: dateOnlyValue, title });
+  await prisma.session.updateMany({
+    where: { date: dateOnlyValue, status: 'PLANNED' },
+    data: { status: 'CLOSED_DAY' },
+  });
+  return closedDay;
+}
+
+module.exports = { listAll, listForMonth, isClosed, create, remove, createAndCancelSessions };

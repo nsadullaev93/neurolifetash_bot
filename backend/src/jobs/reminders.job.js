@@ -3,13 +3,28 @@ const { Markup } = require('telegraf');
 const config = require('../config/default');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
+const HolidayModel = require('../models/Holiday');
 const { webAppKeyboard } = require('../controllers/botController');
 const { generateMonth } = require('../services/monthGenerator.service');
-const { calculateForecast, calculatePaymentStatus } = require('../services/forecast.service');
+const {
+  calculateForecast,
+  calculatePaymentStatus,
+  getUnconfirmedHolidayWarnings,
+} = require('../services/forecast.service');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
 const { closeMonth } = require('../services/settlement.service');
 const { formatMoney, formatMoneySigned } = require('../utils/money');
-const { todayDateOnly, currentHM, nowYearMonth, nowTz, isLastDayOfMonth, monthName } = require('../utils/date');
+const {
+  todayDateOnly,
+  dateOnly,
+  currentHM,
+  nowYearMonth,
+  nowTz,
+  isLastDayOfMonth,
+  isoWeekday,
+  formatDateLong,
+  monthName,
+} = require('../utils/date');
 
 function startReminderJobs(bot) {
   // Every minute: send the "unmarked sessions today" reminder to any user
@@ -49,15 +64,22 @@ function startReminderJobs(bot) {
       try {
         const { year, month } = nowYearMonth();
         const forecast = await calculateForecast(year, month);
+        const holidayWarnings = await getUnconfirmedHolidayWarnings(year, month);
         const users = await UserModel.listAll();
 
         const lines = forecast.breakdown.map(
           (b) => `${b.trainerName} (${b.levelName}) — ${b.plan} × ${formatMoney(b.rate)} = ${formatMoney(b.amount)}`,
         );
-        const text =
+        let text =
           `Расчёт оплаты на ${monthName(month)} ${year}:\n\n${lines.join('\n')}\n\n` +
           `Итого: ${formatMoney(forecast.total)}\n\n` +
           `Пожалуйста, оплатите до 7 числа.`;
+
+        for (const w of holidayWarnings) {
+          text +=
+            `\n\nВ этом месяце ${formatDateLong(w.date)} — ${w.title}. ` +
+            `Если центр будет закрыт, к оплате станет меньше на ${formatMoney(w.impact)}.`;
+        }
 
         for (const user of users) {
           if (!user.remindersOn) continue;
@@ -149,6 +171,43 @@ function startReminderJobs(bot) {
         }
       } catch (err) {
         console.error('Ошибка итоговой сверки месяца:', err.message);
+      }
+    },
+    { timezone: config.timezone },
+  );
+
+  // За 2 дня и накануне праздника (будний день), 19:00 — спросить, работает
+  // ли центр (ТЗ v2, §2.13). Если UNKNOWN остаётся и в день Х — день просто
+  // считается рабочим, отдельного действия не требуется.
+  cron.schedule(
+    '0 19 * * *',
+    async () => {
+      try {
+        const n = nowTz();
+        const in1 = dateOnly(n.year(), n.month() + 1, n.date() + 1);
+        const in2 = dateOnly(n.year(), n.month() + 1, n.date() + 2);
+        const candidates = [in1, in2].filter((d) => isoWeekday(d) <= 5);
+        if (candidates.length === 0) return;
+
+        const users = await UserModel.listAll();
+        for (const date of candidates) {
+          const holidays = await HolidayModel.listUnknownBetween(date, date);
+          for (const h of holidays) {
+            const daysLeft = date.getTime() === in1.getTime() ? 'Завтра' : 'Послезавтра';
+            const text = `🎉 ${daysLeft}, ${formatDateLong(h.date)} — ${h.title}\nЦентр в этот день работает?`;
+            const keyboard = Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Работает', `holiday_open:${h.id}`)],
+              [Markup.button.callback('🚫 Закрыт', `holiday_closed:${h.id}`)],
+              [Markup.button.callback('Ещё не знаю', `holiday_unknown:${h.id}`)],
+            ]);
+            for (const user of users) {
+              if (!user.remindersOn) continue;
+              await bot.telegram.sendMessage(Number(user.telegramId), text, keyboard);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Ошибка вопроса о праздничном дне:', err.message);
       }
     },
     { timezone: config.timezone },

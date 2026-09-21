@@ -7,6 +7,8 @@ const { formatMoney, formatMoneySigned } = require('../utils/money');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
 const { markPaidSeparately, markCarriedOver } = require('../services/settlement.service');
 const SettlementModel = require('../models/Settlement');
+const HolidayModel = require('../models/Holiday');
+const ClosedDayModel = require('../models/ClosedDay');
 const { resolveAccess, isAllowedTelegramId } = require('../utils/access');
 const conversationState = require('../utils/conversationState');
 
@@ -461,6 +463,38 @@ function setupBot(bot) {
       await ctx.editMessageText(`${originalText}\n\n${decision === 'accept' ? '✅ принята цифра центра' : '✅ оставлена своя цифра'} (${agreedConducted})`);
     } catch (err) {
       console.error('Не удалось обновить сообщение сверки с центром:', err.message);
+    }
+  });
+
+  // Ответ на вопрос «Центр работает?» про праздничный день (ТЗ v2, §2.13).
+  bot.action(/^holiday_(open|closed|unknown):(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+
+    const [, decision, idStr] = ctx.match;
+    const holiday = await HolidayModel.findById(idStr);
+    if (!holiday) return ctx.answerCbQuery('Праздник не найден', { show_alert: true });
+
+    if (decision === 'unknown') {
+      await ctx.answerCbQuery('Спросим ещё раз позже');
+      return;
+    }
+
+    if (decision === 'open') {
+      await HolidayModel.setStatus(holiday.id, 'OPEN');
+      await ctx.answerCbQuery('Отмечено: центр работает');
+    } else {
+      await HolidayModel.setStatus(holiday.id, 'CLOSED');
+      await ClosedDayModel.createAndCancelSessions(holiday.date, holiday.title);
+      await ctx.answerCbQuery('Отмечено: центр закрыт');
+    }
+
+    const originalText = ctx.callbackQuery.message?.text || '';
+    const decisionLabel = decision === 'open' ? '✅ Центр работает' : '🚫 Центр закрыт';
+    try {
+      await ctx.editMessageText(`${originalText}\n\n${decisionLabel}`);
+    } catch (err) {
+      console.error('Не удалось обновить сообщение о праздничном дне:', err.message);
     }
   });
 

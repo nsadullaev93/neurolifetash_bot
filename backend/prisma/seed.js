@@ -10,6 +10,18 @@ const LEVELS = [
 
 const TRAINER_COLORS = ['#E4572E', '#2E86AB', '#6A994E', '#9B5DE5', '#F4A261', '#3A86FF'];
 
+// Праздники Узбекистана с фиксированной датой (ТЗ v2, §2.13). Даты Рамазан-
+// и Курбан-хайита плавающие — добавляются вручную (Admin Panel / Настройки).
+const FIXED_HOLIDAYS = [
+  { month: 1, day: 1, title: 'Новый год' },
+  { month: 3, day: 8, title: 'Международный женский день' },
+  { month: 3, day: 21, title: 'Навруз' },
+  { month: 5, day: 9, title: 'День памяти и почестей' },
+  { month: 9, day: 1, title: 'День Независимости' },
+  { month: 10, day: 1, title: 'День учителя' },
+  { month: 12, day: 8, title: 'День Конституции' },
+];
+
 // weekday: 1=Пн, 2=Вт, 3=Ср, 4=Чт, 5=Пт
 const TRAINERS = [
   {
@@ -172,6 +184,19 @@ async function main() {
     }
   }
   console.log('Расписание специалистов готово');
+
+  const thisYear = new Date().getFullYear();
+  for (const year of [thisYear, thisYear + 1]) {
+    for (const h of FIXED_HOLIDAYS) {
+      const date = dateOnly(year, h.month, h.day);
+      await prisma.holiday.upsert({
+        where: { familyId_date: { familyId: family.id, date } },
+        update: { title: h.title },
+        create: { familyId: family.id, date, title: h.title },
+      });
+    }
+  }
+  console.log(`Праздники-подсказки готовы на ${thisYear} и ${thisYear + 1} год`);
 
   await generateCurrentMonthSessions(child.id);
 
