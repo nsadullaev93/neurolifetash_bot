@@ -73,11 +73,27 @@ async function start() {
     console.log(`Backend запущен: http://localhost:${config.port}`);
   });
 
-  bot.launch();
-  console.log('Telegram-бот запущен (long polling)');
+  startBotWithRetry();
 
   process.once('SIGINT', () => bot.stop('SIGINT'));
   process.once('SIGTERM', () => bot.stop('SIGTERM'));
+}
+
+// bot.launch() only resolves once polling stops — including when it dies
+// because of a transient 409 (two instances briefly overlapping during a
+// Render rolling deploy). Previously this was fire-and-forget (no await),
+// so that failure vanished into an unhandled rejection and polling never
+// resumed: the bot looked "launched" in the logs but silently stopped
+// receiving any Telegram updates until the next deploy. Now it retries.
+async function startBotWithRetry(attempt = 1) {
+  try {
+    console.log(`Запуск Telegram-бота (long polling), попытка ${attempt}...`);
+    await bot.launch({ dropPendingUpdates: true });
+    console.log('Бот остановлен штатно (bot.stop) — не перезапускаем.');
+  } catch (err) {
+    console.error(`Бот упал (попытка ${attempt}): ${err.message}. Перезапуск через 5 секунд...`);
+    setTimeout(() => startBotWithRetry(attempt + 1), 5000);
+  }
 }
 
 start();
