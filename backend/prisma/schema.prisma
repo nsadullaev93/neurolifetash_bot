@@ -183,6 +183,7 @@ model Session {
   markedByUserId     Int? // кто отметил (§2.14)
   markedAt           DateTime?
   notes              SessionNote[]
+  checkins           SessionCheckin[]
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -249,6 +250,22 @@ model Settlement {
   updatedAt       DateTime         @updatedAt
 
   @@unique([year, month, trainerId])
+}
+
+// Ссылки на отправленные в чат сообщения-чекины после занятия (ТЗ v2,
+// §7.1, §2.14): у каждого получателя своя копия сообщения, и при ответе
+// любого из них нужно отредактировать ВСЕ копии — отсюда отдельная
+// таблица (chatId/messageId), а не просто флаг на Session.
+model SessionCheckin {
+  id        Int      @id @default(autoincrement())
+  sessionId Int
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    Int
+  chatId    BigInt // == User.telegramId, личный чат
+  messageId Int // Telegram message_id, для editMessageText
+  createdAt DateTime @default(now())
+
+  @@unique([sessionId, userId])
 }
 
 model SessionNote {

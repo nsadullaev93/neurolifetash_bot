@@ -47,6 +47,16 @@ async function countUnmarkedForDate(dateOnlyValue) {
   return prisma.session.count({ where: { date: dateOnlyValue, status: 'PLANNED' } });
 }
 
+// Занятия сегодняшнего дня, заканчивающиеся в endTime и ещё не отмеченные —
+// кандидаты на чат-чекин через 5 минут после конца (ТЗ v2, §7.1).
+async function listDueForCheckin(dateOnlyValue, endTime) {
+  return prisma.session.findMany({
+    where: { date: dateOnlyValue, endTime, status: 'PLANNED' },
+    include: includeTrainers,
+    orderBy: { startTime: 'asc' },
+  });
+}
+
 async function update(id, data) {
   return prisma.session.update({ where: { id: Number(id) }, data, include: includeTrainers });
 }
@@ -97,6 +107,7 @@ module.exports = {
   listBetween,
   listUnmarkedBefore,
   countUnmarkedForDate,
+  listDueForCheckin,
   update,
   create,
   remove,

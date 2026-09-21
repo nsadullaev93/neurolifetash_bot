@@ -18,6 +18,8 @@ const { buildDiaryPdf } = require('../services/pdfDiary.service');
 const { getChildName } = require('../utils/scope');
 const { prevMonthOf, dateOnly, daysInMonth } = require('../utils/date');
 const { getPeriodStats } = require('../services/stats.service');
+const checkin = require('../services/checkin.service');
+const { logAudit } = require('../utils/audit');
 
 // Владелец семьи (ТЗ v2, §2.14) — источник истины теперь FamilyMember.role,
 // а не только OWNER_TELEGRAM_ID (тот остаётся внешним гейтом доступа к
@@ -746,6 +748,177 @@ function setupBot(bot) {
     } catch (err) {
       console.error('Не удалось обновить сообщение о праздничном дне:', err.message);
     }
+  });
+
+  // Чат-чекины после занятий (ТЗ v2, §7.1, §2.14). Сообщения рассылает
+  // checkin.service.sendDueCheckins (см. reminders.job.js); эти обработчики
+  // реагируют на нажатия и обновляют ВСЕ разосланные копии сразу — у
+  // каждого получателя своя, а данные общие.
+  bot.action(/^checkin_done:(\d+)$/, async (ctx) => {
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+
+    const sessionId = Number(ctx.match[1]);
+    const existing = await SessionModel.findById(sessionId);
+    if (!existing) return ctx.answerCbQuery('Занятие не найдено', { show_alert: true });
+
+    const updated = await SessionModel.update(sessionId, {
+      status: 'COMPLETED',
+      markedByUserId: user.id,
+      markedAt: new Date(),
+    });
+    await logAudit('Session', sessionId, 'update', existing, updated, user.id);
+    await ctx.answerCbQuery('Отмечено: было');
+
+    const member = await FamilyMemberModel.findByUserId(user.id);
+    await checkin.updateAllCopies(
+      bot,
+      sessionId,
+      checkin.resultText(updated, member?.displayName),
+      checkin.changeKeyboard(sessionId),
+    );
+  });
+
+  bot.action(/^checkin_notdone:(\d+)$/, async (ctx) => {
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+
+    const sessionId = Number(ctx.match[1]);
+    const existing = await SessionModel.findById(sessionId);
+    if (!existing) return ctx.answerCbQuery('Занятие не найдено', { show_alert: true });
+
+    // Пропуск отмечается сразу (деньги не зависят от причины) — причина
+    // ниже только уточняет статус для отчёта, если её вообще укажут.
+    const updated = await SessionModel.update(sessionId, {
+      status: 'CHILD_ABSENT',
+      markedByUserId: user.id,
+      markedAt: new Date(),
+    });
+    await logAudit('Session', sessionId, 'update', existing, updated, user.id);
+    await ctx.answerCbQuery('Отмечено: не было');
+
+    const member = await FamilyMemberModel.findByUserId(user.id);
+    await checkin.updateAllCopies(
+      bot,
+      sessionId,
+      `${checkin.resultText(updated, member?.displayName)}\n\nУточнить причину? (необязательно)`,
+      checkin.reasonKeyboard(sessionId),
+    );
+  });
+
+  bot.action(/^checkin_reason:(\d+):(\w+)$/, async (ctx) => {
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+
+    const sessionId = Number(ctx.match[1]);
+    const newStatus = checkin.REASON_STATUS[ctx.match[2]];
+    if (!newStatus) return ctx.answerCbQuery();
+
+    const existing = await SessionModel.findById(sessionId);
+    if (!existing) return ctx.answerCbQuery('Занятие не найдено', { show_alert: true });
+
+    const updated = await SessionModel.update(sessionId, {
+      status: newStatus,
+      markedByUserId: user.id,
+      markedAt: new Date(),
+    });
+    await logAudit('Session', sessionId, 'update', existing, updated, user.id);
+    await ctx.answerCbQuery('Причина сохранена');
+
+    const member = await FamilyMemberModel.findByUserId(user.id);
+    await checkin.updateAllCopies(
+      bot,
+      sessionId,
+      checkin.resultText(updated, member?.displayName),
+      checkin.changeKeyboard(sessionId),
+    );
+  });
+
+  // Список специалистов для подмены показывается только в копии того, кто
+  // нажал — промежуточное состояние; сама подмена ниже уже обновляет все копии.
+  bot.action(/^checkin_other:(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+    await ctx.answerCbQuery();
+
+    const sessionId = Number(ctx.match[1]);
+    const keyboard = await checkin.otherTrainerKeyboard(sessionId);
+    try {
+      await ctx.editMessageReplyMarkup(keyboard.reply_markup);
+    } catch (err) {
+      console.error('Не удалось показать список специалистов для подмены:', err.message);
+    }
+  });
+
+  bot.action(/^checkin_trainer:(\d+):(\d+)$/, async (ctx) => {
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+
+    const sessionId = Number(ctx.match[1]);
+    const trainerId = Number(ctx.match[2]);
+    const existing = await SessionModel.findById(sessionId);
+    if (!existing) return ctx.answerCbQuery('Занятие не найдено', { show_alert: true });
+
+    const updated = await SessionModel.update(sessionId, {
+      status: 'COMPLETED',
+      actualTrainerId: trainerId,
+      markedByUserId: user.id,
+      markedAt: new Date(),
+    });
+    await logAudit('Session', sessionId, 'update', existing, updated, user.id);
+    await ctx.answerCbQuery('Отмечено: провёл другой специалист');
+
+    const member = await FamilyMemberModel.findByUserId(user.id);
+    await checkin.updateAllCopies(
+      bot,
+      sessionId,
+      checkin.resultText(updated, member?.displayName),
+      checkin.changeKeyboard(sessionId),
+    );
+  });
+
+  // «Изменить» остаётся под сообщением до конца дня (ТЗ v2, §7.1) —
+  // возвращает ВСЕ копии к исходному вопросу; текущая отметка не
+  // сбрасывается сама по себе, пока не выбрали новый ответ.
+  bot.action(/^checkin_change:(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+    await ctx.answerCbQuery();
+
+    const sessionId = Number(ctx.match[1]);
+    const session = await SessionModel.findById(sessionId);
+    if (!session) return;
+
+    await checkin.updateAllCopies(bot, sessionId, checkin.questionText(session), checkin.questionKeyboard(sessionId, false));
+  });
+
+  // «Сегодня не идём» — из первого сообщения дня, отмечает одним нажатием
+  // все ещё не отмеченные занятия сегодня (ТЗ v2, §7.1).
+  bot.action('checkin_bulk_absent', async (ctx) => {
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+
+    const today = todayDateOnly();
+    const sessions = await SessionModel.listForDate(today);
+    const planned = sessions.filter((s) => s.status === 'PLANNED');
+    const member = await FamilyMemberModel.findByUserId(user.id);
+
+    for (const s of planned) {
+      const updated = await SessionModel.update(s.id, {
+        status: 'CHILD_ABSENT',
+        markedByUserId: user.id,
+        markedAt: new Date(),
+      });
+      await logAudit('Session', s.id, 'update', s, updated, user.id);
+      await checkin.updateAllCopies(
+        bot,
+        s.id,
+        checkin.resultText(updated, member?.displayName),
+        checkin.changeKeyboard(s.id),
+      );
+    }
+
+    await ctx.answerCbQuery(`Отмечено: сегодня не идём (${planned.length})`);
   });
 
   bot.help((ctx) => {

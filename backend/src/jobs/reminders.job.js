@@ -15,6 +15,7 @@ const {
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
 const { closeMonth } = require('../services/settlement.service');
 const { getPeriodStats } = require('../services/stats.service');
+const { sendDueCheckins } = require('../services/checkin.service');
 const { formatMoney, formatMoneySigned } = require('../utils/money');
 const {
   todayDateOnly,
@@ -62,6 +63,19 @@ function startReminderJobs(bot) {
         }
       } catch (err) {
         console.error('Ошибка ежедневного напоминания:', err.message);
+      }
+    },
+    { timezone: config.timezone },
+  );
+
+  // Каждую минуту — чат-чекины через 5 минут после конца занятия (ТЗ v2, §7.1).
+  cron.schedule(
+    '* * * * *',
+    async () => {
+      try {
+        await sendDueCheckins(bot);
+      } catch (err) {
+        console.error('Ошибка отправки чат-чекинов:', err.message);
       }
     },
     { timezone: config.timezone },

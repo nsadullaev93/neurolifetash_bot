@@ -30,8 +30,8 @@ function nowYearMonth() {
   return { year: n.year(), month: n.month() + 1 };
 }
 
-function currentHM() {
-  return nowTz().format('HH:mm');
+function currentHM(minusMinutes = 0) {
+  return nowTz().subtract(minusMinutes, 'minute').format('HH:mm');
 }
 
 // Date-only value stored/compared as a UTC-midnight JS Date representing a
