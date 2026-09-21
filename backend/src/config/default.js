@@ -18,6 +18,15 @@ module.exports = {
   externalUrl: process.env.RENDER_EXTERNAL_URL || process.env.SELF_URL || null,
   selfPingEnabled: (process.env.SELF_PING_ENABLED || 'true').toLowerCase() === 'true',
 
+  // Список разрешённых Telegram ID через запятую, например "111111111,222222222".
+  // Свой ID можно узнать командой /myid у бота. Если переменная не задана —
+  // доступ не ограничен (как было раньше) — заполните её, чтобы закрыть доступ
+  // всем, кроме перечисленных людей.
+  allowedTelegramIds: (process.env.ALLOWED_TELEGRAM_IDS || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean),
+
   levels: {
     BEGINNER: { name: 'Начальный', rate: 230000 },
     MIDDLE: { name: 'Средний', rate: 277000 },

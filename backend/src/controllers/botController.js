@@ -5,6 +5,7 @@ const SessionModel = require('../models/Session');
 const { todayDateOnly, formatDateRu, nowYearMonth } = require('../utils/date');
 const { formatMoneySigned } = require('../utils/money');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
+const { isAllowedTelegramId } = require('../utils/access');
 
 // Telegram rejects any inline button (web_app or plain url) pointing at
 // http://localhost — it requires a real public https:// address. Until
@@ -34,6 +35,9 @@ function setupBot(bot) {
   });
 
   bot.start(async (ctx) => {
+    if (!isAllowedTelegramId(ctx.from.id)) {
+      return ctx.reply('Этот бот приватный и недоступен для посторонних пользователей.');
+    }
     await UserModel.upsertFromTelegram(ctx.from);
     const keyboard = webAppKeyboard();
     const note = keyboard ? '' : '\n\n(Кнопка появится после настройки ngrok — см. инструкцию.)';
@@ -46,6 +50,7 @@ function setupBot(bot) {
   });
 
   bot.command('today', async (ctx) => {
+    if (!isAllowedTelegramId(ctx.from.id)) return;
     await UserModel.upsertFromTelegram(ctx.from);
     const today = todayDateOnly();
     const sessions = await SessionModel.listForDate(today);
@@ -65,6 +70,7 @@ function setupBot(bot) {
   });
 
   bot.command('balance', async (ctx) => {
+    if (!isAllowedTelegramId(ctx.from.id)) return;
     await UserModel.upsertFromTelegram(ctx.from);
     const { year, month } = nowYearMonth();
     const report = await calculateMonthlyReconciliation(year, month);
@@ -82,12 +88,20 @@ function setupBot(bot) {
     await ctx.reply(text, webAppKeyboard('Открыть отчёт'));
   });
 
+  // Показывает Telegram ID отправителя. Не требует доступа и не создаёт
+  // пользователя — нужна только чтобы узнать, какой ID вписать в
+  // ALLOWED_TELEGRAM_IDS на Render.
+  bot.command('myid', (ctx) => {
+    ctx.reply(`Ваш Telegram ID: ${ctx.from.id}`);
+  });
+
   bot.help((ctx) =>
     ctx.reply(
       'Доступные команды:\n\n' +
         '/start — открыть журнал занятий\n' +
         '/today — занятия на сегодня\n' +
         '/balance — баланс по специалистам за текущий месяц\n' +
+        '/myid — узнать свой Telegram ID\n' +
         '/help — эта справка',
     ),
   );

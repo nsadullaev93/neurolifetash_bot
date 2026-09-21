@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const config = require('../config/default');
 const UserModel = require('../models/User');
+const { isAllowedTelegramId } = require('../utils/access');
 
 const DEV_TELEGRAM_ID = 1;
 
@@ -58,6 +59,10 @@ async function authMiddleware(req, res, next) {
     const from = validateInitData(initData, config.botToken);
     if (!from) {
       return res.status(401).json({ error: 'Не удалось подтвердить данные Telegram' });
+    }
+
+    if (!isAllowedTelegramId(from.id)) {
+      return res.status(403).json({ error: 'Доступ к этому приложению ограничен' });
     }
 
     const user = await UserModel.upsertFromTelegram(from);
