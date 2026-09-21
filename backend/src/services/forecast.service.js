@@ -1,6 +1,7 @@
 const TrainerModel = require('../models/Trainer');
 const ClosedDayModel = require('../models/ClosedDay');
 const SettlementModel = require('../models/Settlement');
+const PaymentModel = require('../models/Payment');
 const { getMonthDateList, isoWeekday, prevMonthOf } = require('../utils/date');
 
 // Перенесённые расчёты ПРЕДЫДУЩЕГО месяца (ТЗ v2, §2.7, §2.9). Переплата
@@ -69,4 +70,34 @@ async function calculateForecast(year, month) {
   return { year, month, breakdown, total };
 }
 
-module.exports = { computePlanByTrainer, calculateForecast };
+// Статус оплаты специалиста за месяц (ТЗ v2, §2.10) — вычисляется, не
+// хранится: сравнивает фактически внесённое (сумма всех MonthlyPayment за
+// месяц) с "к оплате" из калькулятора (уже с учётом переноса, §2.7/§2.9).
+async function calculatePaymentStatus(year, month) {
+  const forecast = await calculateForecast(year, month);
+  const payments = await PaymentModel.listForMonth(year, month);
+
+  const paidByTrainer = new Map();
+  for (const p of payments) {
+    paidByTrainer.set(p.trainerId, (paidByTrainer.get(p.trainerId) || 0) + p.totalAmount);
+  }
+
+  const rows = forecast.breakdown.map((b) => {
+    const paidAmount = paidByTrainer.get(b.trainerId) || 0;
+    let status = 'PAID';
+    if (paidAmount === 0) status = 'UNPAID';
+    else if (paidAmount < b.amount) status = 'PARTIAL';
+    return {
+      trainerId: b.trainerId,
+      trainerName: b.trainerName,
+      toPay: b.amount,
+      paidAmount,
+      remaining: Math.max(b.amount - paidAmount, 0),
+      status,
+    };
+  });
+
+  return { year, month, rows };
+}
+
+module.exports = { computePlanByTrainer, calculateForecast, calculatePaymentStatus };

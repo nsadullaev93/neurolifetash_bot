@@ -5,7 +5,7 @@ const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
 const { webAppKeyboard } = require('../controllers/botController');
 const { generateMonth } = require('../services/monthGenerator.service');
-const { calculateForecast } = require('../services/forecast.service');
+const { calculateForecast, calculatePaymentStatus } = require('../services/forecast.service');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
 const { closeMonth } = require('../services/settlement.service');
 const { formatMoney, formatMoneySigned } = require('../utils/money');
@@ -65,6 +65,37 @@ function startReminderJobs(bot) {
         }
       } catch (err) {
         console.error('Ошибка месячного напоминания об оплате:', err.message);
+      }
+    },
+    { timezone: config.timezone },
+  );
+
+  // С 1 по 7 число в 10:00 — напоминание об оплате (ТЗ v2, §2.10), только
+  // если кто-то ещё не оплачен или оплачен частично. После 7 числа
+  // напоминания прекращаются сами — cron просто не совпадает по дате.
+  cron.schedule(
+    '0 10 1-7 * *',
+    async () => {
+      try {
+        const { year, month } = nowYearMonth();
+        const paymentStatus = await calculatePaymentStatus(year, month);
+        const unpaid = paymentStatus.rows.filter((r) => r.status !== 'PAID');
+        if (unpaid.length === 0) return;
+
+        const paid = paymentStatus.rows.filter((r) => r.status === 'PAID');
+        const lines = unpaid.map((r) => `• ${r.trainerName} — ${formatMoney(r.remaining)}`);
+        let text = `💳 Оплата за ${monthName(month)}\nОсталось оплатить:\n${lines.join('\n')}`;
+        if (paid.length) {
+          text += `\n\nУже оплачено: ${paid.map((r) => r.trainerName).join(', ')}`;
+        }
+
+        const users = await UserModel.listAll();
+        for (const user of users) {
+          if (!user.remindersOn) continue;
+          await bot.telegram.sendMessage(Number(user.telegramId), text, webAppKeyboard('Внести оплату'));
+        }
+      } catch (err) {
+        console.error('Ошибка напоминания об оплате (1-7 число):', err.message);
       }
     },
     { timezone: config.timezone },

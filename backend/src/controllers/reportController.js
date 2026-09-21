@@ -1,5 +1,5 @@
 const { getMonthlyReport, exportMonthlyXlsx } = require('../services/report.service');
-const { calculateForecast } = require('../services/forecast.service');
+const { calculateForecast, calculatePaymentStatus } = require('../services/forecast.service');
 
 function parseYearMonth(req, res) {
   const year = parseInt(req.query.year, 10);
@@ -33,6 +33,17 @@ async function forecast(req, res, next) {
   }
 }
 
+async function paymentStatus(req, res, next) {
+  try {
+    const ym = parseYearMonth(req, res);
+    if (!ym) return;
+    const result = await calculatePaymentStatus(ym.year, ym.month);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function exportMonthly(req, res, next) {
   try {
     const ym = parseYearMonth(req, res);
@@ -49,4 +60,4 @@ async function exportMonthly(req, res, next) {
   }
 }
 
-module.exports = { monthly, forecast, exportMonthly };
+module.exports = { monthly, forecast, paymentStatus, exportMonthly };

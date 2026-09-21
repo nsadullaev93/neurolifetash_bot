@@ -51,6 +51,7 @@ router.patch('/payments/:id', paymentController.update);
 
 router.get('/reports/monthly', reportController.monthly);
 router.get('/reports/forecast', reportController.forecast);
+router.get('/reports/payment-status', reportController.paymentStatus);
 router.get('/reports/monthly/export', reportController.exportMonthly);
 
 module.exports = router;
