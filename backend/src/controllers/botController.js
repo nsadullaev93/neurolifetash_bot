@@ -194,6 +194,20 @@ function setupBot(bot) {
       );
       await ctx.reply('Отозвать доступ:', keyboard);
     }
+
+    if (pending.length) {
+      // Reuses the same access_approve / access_reject handler as the
+      // original request card — lets you resolve someone even if that
+      // original message scrolled away or (for anyone reset to PENDING
+      // manually) was never sent in the first place.
+      const keyboard = Markup.inlineKeyboard(
+        pending.map((u) => [
+          Markup.button.callback(`✅ ${u.firstName || u.telegramId}`, `access_approve:${u.telegramId}`),
+          Markup.button.callback(`❌ ${u.firstName || u.telegramId}`, `access_reject:${u.telegramId}`),
+        ]),
+      );
+      await ctx.reply('Решить по ожидающим:', keyboard);
+    }
   });
 
   // Кнопка «Отозвать доступ» из /users — тоже только для владельца. Ставит
