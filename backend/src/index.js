@@ -14,8 +14,27 @@ const { notFoundMiddleware, errorMiddleware } = require('./middlewares/error.mid
 
 // Last-resort safety net: log and keep running instead of crashing the
 // whole backend (and with it the bot and reminder jobs) on a stray error.
+//
+// Telegraf's polling loop runs detached from the promise bot.launch()
+// returns — even with `await bot.launch()`, a failure inside the loop
+// (e.g. the 409 conflict below) surfaces ONLY here, never in a try/catch
+// around launch() itself. So a getUpdates failure is handled specially:
+// it means polling has silently died, and we relaunch the bot from here.
+let botRelaunchTimer = null;
+function scheduleBotRelaunch(reason) {
+  if (botRelaunchTimer) return;
+  console.error(`Бот перестал слушать Telegram (${reason}) — перезапуск через 5 секунд...`);
+  botRelaunchTimer = setTimeout(() => {
+    botRelaunchTimer = null;
+    launchBot();
+  }, 5000);
+}
+
 process.on('unhandledRejection', (err) => {
   console.error('Необработанная ошибка (unhandledRejection):', err);
+  if (err && err.on && err.on.method === 'getUpdates') {
+    scheduleBotRelaunch(`${err.response?.error_code}: ${err.response?.description}`);
+  }
 });
 process.on('uncaughtException', (err) => {
   console.error('Необработанная ошибка (uncaughtException):', err);
@@ -73,26 +92,21 @@ async function start() {
     console.log(`Backend запущен: http://localhost:${config.port}`);
   });
 
-  startBotWithRetry();
+  launchBot();
 
   process.once('SIGINT', () => bot.stop('SIGINT'));
   process.once('SIGTERM', () => bot.stop('SIGTERM'));
 }
 
-// bot.launch() only resolves once polling stops — including when it dies
-// because of a transient 409 (two instances briefly overlapping during a
-// Render rolling deploy). Previously this was fire-and-forget (no await),
-// so that failure vanished into an unhandled rejection and polling never
-// resumed: the bot looked "launched" in the logs but silently stopped
-// receiving any Telegram updates until the next deploy. Now it retries.
-async function startBotWithRetry(attempt = 1) {
+// Actual polling failures (409 during a Render rolling deploy, etc.) surface
+// via the global unhandledRejection handler above, not here — this catch is
+// only a fallback for a synchronous/setup-time failure in launch() itself.
+async function launchBot() {
   try {
-    console.log(`Запуск Telegram-бота (long polling), попытка ${attempt}...`);
+    console.log('Запуск Telegram-бота (long polling)...');
     await bot.launch({ dropPendingUpdates: true });
-    console.log('Бот остановлен штатно (bot.stop) — не перезапускаем.');
   } catch (err) {
-    console.error(`Бот упал (попытка ${attempt}): ${err.message}. Перезапуск через 5 секунд...`);
-    setTimeout(() => startBotWithRetry(attempt + 1), 5000);
+    scheduleBotRelaunch(err.message);
   }
 }
 
