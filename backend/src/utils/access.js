@@ -1,5 +1,6 @@
 const config = require('../config/default');
 const UserModel = require('../models/User');
+const FamilyMemberModel = require('../models/FamilyMember');
 const { notifyOwnerOfRequest } = require('../services/accessRequest.service');
 
 // Пустой список (ALLOWED_TELEGRAM_IDS не задан) = ограничение выключено —
@@ -22,12 +23,16 @@ async function resolveAccess(from) {
     if (user.accessStatus !== 'APPROVED') {
       user = await UserModel.setAccessStatus(from.id, 'APPROVED');
     }
+    await FamilyMemberModel.ensureForUser(user);
     return { status: 'approved', user };
   }
 
   let user = await UserModel.upsertFromTelegram(from);
 
-  if (user.accessStatus === 'APPROVED') return { status: 'approved', user };
+  if (user.accessStatus === 'APPROVED') {
+    await FamilyMemberModel.ensureForUser(user);
+    return { status: 'approved', user };
+  }
   if (user.accessStatus === 'REJECTED') return { status: 'rejected', user };
 
   // PENDING — notify the owner once per pending "episode", tracked via

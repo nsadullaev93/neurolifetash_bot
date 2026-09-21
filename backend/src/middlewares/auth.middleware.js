@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const config = require('../config/default');
 const UserModel = require('../models/User');
+const FamilyMemberModel = require('../models/FamilyMember');
 const { resolveAccess } = require('../utils/access');
 
 const DEV_TELEGRAM_ID = 1;
@@ -51,6 +52,7 @@ async function authMiddleware(req, res, next) {
           });
         }
         req.user = user;
+        req.member = await FamilyMemberModel.ensureForUser(user);
         return next();
       }
       return res.status(401).json({ error: 'Отсутствуют данные авторизации Telegram' });
@@ -70,10 +72,33 @@ async function authMiddleware(req, res, next) {
     }
 
     req.user = user;
+    req.member = await FamilyMemberModel.findByUserId(user.id);
     next();
   } catch (err) {
     next(err);
   }
 }
 
+// Гейтинг денежных данных (ТЗ v2, §2.14): участник без canSeeMoney не
+// видит оплаты, балансы, отчёты. Владелец видит всегда (canSeeMoney=true
+// выставляется ему при создании FamilyMember, см. models/FamilyMember.js).
+function requireMoneyAccess(req, res, next) {
+  if (!req.member?.canSeeMoney) {
+    return res.status(403).json({ error: 'Владелец семьи не открыл вам доступ к деньгам' });
+  }
+  next();
+}
+
+// Действия, которые ТЗ резервирует только за владельцем (вносить оплаты,
+// закрывать расчёты, цифры центра, специалисты/расписание/праздники) —
+// canSeeMoney тут недостаточно, нужна именно роль OWNER.
+function requireOwnerRole(req, res, next) {
+  if (req.member?.role !== 'OWNER') {
+    return res.status(403).json({ error: 'Это действие доступно только владельцу семьи' });
+  }
+  next();
+}
+
 module.exports = authMiddleware;
+module.exports.requireMoneyAccess = requireMoneyAccess;
+module.exports.requireOwnerRole = requireOwnerRole;

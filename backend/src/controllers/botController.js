@@ -9,8 +9,19 @@ const { markPaidSeparately, markCarriedOver } = require('../services/settlement.
 const SettlementModel = require('../models/Settlement');
 const HolidayModel = require('../models/Holiday');
 const ClosedDayModel = require('../models/ClosedDay');
+const FamilyMemberModel = require('../models/FamilyMember');
+const InviteModel = require('../models/Invite');
 const { resolveAccess, isAllowedTelegramId } = require('../utils/access');
 const conversationState = require('../utils/conversationState');
+
+// Владелец семьи (ТЗ v2, §2.14) — источник истины теперь FamilyMember.role,
+// а не только OWNER_TELEGRAM_ID (тот остаётся внешним гейтом доступа к
+// самому боту, см. utils/access.js). Используется для действий, которые ТЗ
+// резервирует за владельцем: закрытие месяца, цифры центра, приглашения.
+async function isOwnerRole(userId) {
+  const member = await FamilyMemberModel.findByUserId(userId);
+  return member?.role === 'OWNER';
+}
 
 function isOwner(telegramId) {
   return !!config.ownerTelegramId && String(telegramId) === String(config.ownerTelegramId);
@@ -44,6 +55,27 @@ function setupBot(bot) {
   });
 
   bot.start(async (ctx) => {
+    // Вступление по пригласительной ссылке (ТЗ v2, §2.14): t.me/<бот>?start=inv_<код>.
+    // Минует очередь запроса доступа — код сам по себе является приглашением.
+    const payload = ctx.startPayload || '';
+    if (payload.startsWith('inv_')) {
+      const invite = await InviteModel.findValidByCode(payload.slice(4));
+      if (invite) {
+        const user = await UserModel.upsertFromTelegram(ctx.from);
+        if (user.accessStatus !== 'APPROVED') {
+          await UserModel.setAccessStatus(user.telegramId, 'APPROVED');
+        }
+        const existingMember = await FamilyMemberModel.findByUserId(user.id);
+        if (!existingMember) {
+          await FamilyMemberModel.createFromInvite(user, invite);
+        }
+        await InviteModel.markUsed(invite.id);
+        await ctx.reply('Добро пожаловать в семью! Нажмите кнопку, чтобы открыть журнал занятий.', webAppKeyboard());
+        return;
+      }
+      await ctx.reply('Пригласительная ссылка недействительна или уже использована.');
+    }
+
     const { status } = await resolveAccess(ctx.from);
 
     if (status === 'pending') {
@@ -88,8 +120,13 @@ function setupBot(bot) {
   });
 
   bot.command('balance', async (ctx) => {
-    const { status } = await resolveAccess(ctx.from);
+    const { status, user } = await resolveAccess(ctx.from);
     if (status !== 'approved') return;
+
+    const member = await FamilyMemberModel.findByUserId(user.id);
+    if (!member?.canSeeMoney) {
+      return ctx.reply('Владелец семьи пока не открыл вам доступ к деньгам.');
+    }
 
     const { year, month } = nowYearMonth();
     const report = await calculateMonthlyReconciliation(year, month);
@@ -113,6 +150,23 @@ function setupBot(bot) {
   // добавить в ALLOWED_TELEGRAM_IDS в обход очереди запроса).
   bot.command('myid', (ctx) => {
     ctx.reply(`Ваш Telegram ID: ${ctx.from.id}`);
+  });
+
+  // Приглашение члена семьи (ТЗ v2, §2.14) — временно как команда бота,
+  // пока не готов экран «Настройки» в Mini App (см. фазу 15 доработок).
+  bot.command('invite', async (ctx) => {
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return;
+    if (!(await isOwnerRole(user.id))) {
+      return ctx.reply('Приглашать новых участников может только владелец.');
+    }
+
+    const username = ctx.botInfo?.username;
+    if (!username) return ctx.reply('Бот сейчас недоступен, попробуйте чуть позже.');
+
+    const invite = await InviteModel.create(user.id);
+    const link = `https://t.me/${username}?start=inv_${invite.code}`;
+    await ctx.reply(`Ссылка для приглашения (действует 24 часа):\n${link}\n\nПерешлите её тому, кого хотите добавить.`);
   });
 
   // Кнопки «Разрешить» / «Отклонить» из карточки запроса на доступ,
@@ -169,15 +223,28 @@ function setupBot(bot) {
     const pending = users.filter((u) => !isAllowedTelegramId(u.telegramId) && u.accessStatus === 'PENDING');
     const rejected = users.filter((u) => !isAllowedTelegramId(u.telegramId) && u.accessStatus === 'REJECTED');
 
+    // Роль/видимость денег (ТЗ v2, §2.14) — только для тех, у кого уже есть
+    // доступ к боту (approved + trusted).
+    const members = await FamilyMemberModel.listAll();
+    const memberByUserId = new Map(members.map((m) => [m.userId, m]));
+    const labelWithRole = (u) => {
+      const base = label(u);
+      const member = memberByUserId.get(u.id);
+      if (!member) return base;
+      const roleLabel = member.role === 'OWNER' ? 'владелец' : 'участник';
+      const moneyLabel = member.canSeeMoney ? 'видит деньги' : 'не видит деньги';
+      return `${base} — ${roleLabel}, ${moneyLabel}`;
+    };
+
     const sections = [];
     if (trusted.length) {
       sections.push(
         '🔒 Доверенный список (ALLOWED_TELEGRAM_IDS — отзывается только правкой этой переменной в Render, не кнопкой):\n' +
-          trusted.map(label).join('\n'),
+          trusted.map(labelWithRole).join('\n'),
       );
     }
     if (approved.length) {
-      sections.push('✅ Одобрены через бота (можно отозвать кнопкой ниже):\n' + approved.map(label).join('\n'));
+      sections.push('✅ Одобрены через бота (можно отозвать кнопкой ниже):\n' + approved.map(labelWithRole).join('\n'));
     }
     if (pending.length) {
       sections.push('⏳ Ожидают решения:\n' + pending.map(label).join('\n'));
@@ -198,6 +265,20 @@ function setupBot(bot) {
         ]),
       );
       await ctx.reply('Отозвать доступ:', keyboard);
+    }
+
+    // Переключатель «видит деньги» — для всех, у кого уже есть FamilyMember
+    // и кто не владелец (у владельца деньги видны всегда).
+    const toggleable = [...trusted, ...approved].filter((u) => memberByUserId.get(u.id)?.role !== 'OWNER');
+    if (toggleable.length) {
+      const keyboard = Markup.inlineKeyboard(
+        toggleable.map((u) => {
+          const member = memberByUserId.get(u.id);
+          const label2 = member.canSeeMoney ? `🚫 Скрыть деньги: ${u.firstName}` : `💰 Показать деньги: ${u.firstName}`;
+          return [Markup.button.callback(label2, `member_toggle_money:${member.id}`)];
+        }),
+      );
+      await ctx.reply('Показывать деньги участнику:', keyboard);
     }
 
     if (pending.length) {
@@ -247,12 +328,38 @@ function setupBot(bot) {
     }
   });
 
+  // Переключатель «видит деньги» из /users (ТЗ v2, §2.14) — только владелец.
+  bot.action(/^member_toggle_money:(\d+)$/, async (ctx) => {
+    if (!isOwner(ctx.from.id)) {
+      return ctx.answerCbQuery('Недостаточно прав', { show_alert: true });
+    }
+
+    const memberId = Number(ctx.match[1]);
+    const members = await FamilyMemberModel.listAll();
+    const member = members.find((m) => m.id === memberId);
+    if (!member) return ctx.answerCbQuery('Участник не найден', { show_alert: true });
+
+    const updated = await FamilyMemberModel.setCanSeeMoney(memberId, !member.canSeeMoney);
+    await ctx.answerCbQuery(updated.canSeeMoney ? 'Деньги показаны' : 'Деньги скрыты');
+
+    const originalText = ctx.callbackQuery.message?.text || '';
+    try {
+      await ctx.editMessageText(
+        `${originalText}\n\n${member.user.firstName}: ${updated.canSeeMoney ? '💰 видит деньги' : '🚫 не видит деньги'}`,
+      );
+    } catch (err) {
+      console.error('Не удалось обновить сообщение о переключении денег:', err.message);
+    }
+  });
+
   // Кнопки закрытия месяца при доплате (ТЗ v2, §2.9) — из итогового
   // сообщения последнего дня месяца. Доступны любому, кто прошёл
   // resolveAccess (полноценные права участников семьи — отдельная фаза).
   bot.action(/^settlement_paid:(\d+):(\d+):(\d+)$/, async (ctx) => {
-    const { status } = await resolveAccess(ctx.from);
-    if (status !== 'approved') return ctx.answerCbQuery();
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved' || !(await isOwnerRole(user.id))) {
+      return ctx.answerCbQuery('Это действие доступно только владельцу семьи', { show_alert: true });
+    }
 
     const [, trainerIdStr, yearStr, monthStr] = ctx.match;
     const year = Number(yearStr);
@@ -277,8 +384,10 @@ function setupBot(bot) {
   });
 
   bot.action(/^settlement_carry:(\d+):(\d+):(\d+)$/, async (ctx) => {
-    const { status } = await resolveAccess(ctx.from);
-    if (status !== 'approved') return ctx.answerCbQuery();
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved' || !(await isOwnerRole(user.id))) {
+      return ctx.answerCbQuery('Это действие доступно только владельцу семьи', { show_alert: true });
+    }
 
     const [, trainerIdStr, yearStr, monthStr] = ctx.match;
     const year = Number(yearStr);
@@ -343,8 +452,10 @@ function setupBot(bot) {
   }
 
   bot.action(/^centerfigures_start:(\d+):(\d+)$/, async (ctx) => {
-    const { status } = await resolveAccess(ctx.from);
-    if (status !== 'approved') return ctx.answerCbQuery();
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved' || !(await isOwnerRole(user.id))) {
+      return ctx.answerCbQuery('Это действие доступно только владельцу семьи', { show_alert: true });
+    }
 
     const [, yearStr, monthStr] = ctx.match;
     const year = Number(yearStr);
@@ -442,8 +553,10 @@ function setupBot(bot) {
   });
 
   bot.action(/^centerfig_(accept|keep):(\d+):(\d+):(\d+)$/, async (ctx) => {
-    const { status } = await resolveAccess(ctx.from);
-    if (status !== 'approved') return ctx.answerCbQuery();
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved' || !(await isOwnerRole(user.id))) {
+      return ctx.answerCbQuery('Это действие доступно только владельцу семьи', { show_alert: true });
+    }
 
     const [, decision, trainerIdStr, yearStr, monthStr] = ctx.match;
     const trainerId = Number(trainerIdStr);
@@ -505,6 +618,7 @@ function setupBot(bot) {
       '/balance — баланс по специалистам за текущий месяц\n' +
       '/myid — узнать свой Telegram ID\n' +
       (isOwner(ctx.from.id) ? '/users — список пользователей и отзыв доступа\n' : '') +
+      (isOwner(ctx.from.id) ? '/invite — пригласить члена семьи\n' : '') +
       '/help — эта справка';
     return ctx.reply(`Доступные команды:\n\n${commands}`);
   });

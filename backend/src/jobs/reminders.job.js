@@ -4,6 +4,7 @@ const config = require('../config/default');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
 const HolidayModel = require('../models/Holiday');
+const FamilyMemberModel = require('../models/FamilyMember');
 const { webAppKeyboard } = require('../controllers/botController');
 const { generateMonth } = require('../services/monthGenerator.service');
 const {
@@ -25,6 +26,14 @@ const {
   formatDateLong,
   monthName,
 } = require('../utils/date');
+
+// Денежные рассылки (калькулятор, напоминание об оплате, итог месяца) идут
+// только тем, кому владелец открыл деньги (ТЗ v2, §2.14: FamilyMember.
+// canSeeMoney) и кто не выключил именно денежные напоминания (paymentPings).
+async function moneyAudienceUsers() {
+  const members = await FamilyMemberModel.listAll();
+  return members.filter((m) => m.canSeeMoney && m.paymentPings).map((m) => m.user);
+}
 
 function startReminderJobs(bot) {
   // Every minute: send the "unmarked sessions today" reminder to any user
@@ -65,7 +74,7 @@ function startReminderJobs(bot) {
         const { year, month } = nowYearMonth();
         const forecast = await calculateForecast(year, month);
         const holidayWarnings = await getUnconfirmedHolidayWarnings(year, month);
-        const users = await UserModel.listAll();
+        const users = await moneyAudienceUsers();
 
         const lines = forecast.breakdown.map(
           (b) => `${b.trainerName} (${b.levelName}) — ${b.plan} × ${formatMoney(b.rate)} = ${formatMoney(b.amount)}`,
@@ -111,7 +120,7 @@ function startReminderJobs(bot) {
           text += `\n\nУже оплачено: ${paid.map((r) => r.trainerName).join(', ')}`;
         }
 
-        const users = await UserModel.listAll();
+        const users = await moneyAudienceUsers();
         for (const user of users) {
           if (!user.remindersOn) continue;
           await bot.telegram.sendMessage(Number(user.telegramId), text, webAppKeyboard('Внести оплату'));
@@ -134,7 +143,7 @@ function startReminderJobs(bot) {
         const { year, month } = nowYearMonth();
         const report = await calculateMonthlyReconciliation(year, month);
         const { pendingDecisions } = await closeMonth(year, month);
-        const users = await UserModel.listAll();
+        const users = await moneyAudienceUsers();
 
         const lines = report.rows.map((r) => {
           const emoji = r.balance > 0 ? '🟢' : r.balance < 0 ? '🔴' : '⚪';

@@ -1,8 +1,10 @@
 const express = require('express');
 const authMiddleware = require('../middlewares/auth.middleware');
+const { requireMoneyAccess, requireOwnerRole } = require('../middlewares/auth.middleware');
 const sessionController = require('../controllers/sessionController');
 const paymentController = require('../controllers/paymentController');
 const reportController = require('../controllers/reportController');
+const familyController = require('../controllers/familyController');
 const UserModel = require('../models/User');
 
 const router = express.Router();
@@ -18,6 +20,10 @@ router.post('/auth/telegram', (req, res) => {
     isAdmin: req.user.isAdmin,
     remindersOn: req.user.remindersOn,
     reminderTime: req.user.reminderTime,
+    role: req.member?.role || null,
+    canSeeMoney: !!req.member?.canSeeMoney,
+    displayName: req.member?.displayName || req.user.firstName,
+    theme: req.member?.theme || 'light',
   });
 });
 
@@ -44,14 +50,19 @@ router.post('/sessions/:id/makeup', sessionController.createMakeup);
 
 router.get('/trainers', sessionController.listTrainers);
 
-router.get('/payments/history', paymentController.listHistory);
-router.get('/payments', paymentController.listMonth);
-router.post('/payments', paymentController.create);
-router.patch('/payments/:id', paymentController.update);
+router.get('/payments/history', requireMoneyAccess, paymentController.listHistory);
+router.get('/payments', requireMoneyAccess, paymentController.listMonth);
+router.post('/payments', requireOwnerRole, paymentController.create);
+router.patch('/payments/:id', requireOwnerRole, paymentController.update);
 
-router.get('/reports/monthly', reportController.monthly);
-router.get('/reports/forecast', reportController.forecast);
-router.get('/reports/payment-status', reportController.paymentStatus);
-router.get('/reports/monthly/export', reportController.exportMonthly);
+router.get('/reports/monthly', requireMoneyAccess, reportController.monthly);
+router.get('/reports/forecast', requireMoneyAccess, reportController.forecast);
+router.get('/reports/payment-status', requireMoneyAccess, reportController.paymentStatus);
+router.get('/reports/monthly/export', requireMoneyAccess, reportController.exportMonthly);
+
+router.get('/family/members', familyController.listMembers);
+router.post('/family/invite', requireOwnerRole, familyController.createInvite);
+router.patch('/family/members/:id', requireOwnerRole, familyController.updateMember);
+router.delete('/family/members/:id', requireOwnerRole, familyController.removeMember);
 
 module.exports = router;

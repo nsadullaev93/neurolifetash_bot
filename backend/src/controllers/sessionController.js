@@ -85,18 +85,23 @@ async function getDashboard(req, res, next) {
     const todaySessions = await SessionModel.listForDate(today);
     const unmarked = await SessionModel.listUnmarkedBefore(today);
     const { year, month } = nowYearMonth();
-    const reconciliation = await calculateMonthlyReconciliation(year, month);
+
+    // Баланс на «Сегодня» — только для тех, кому владелец открыл деньги
+    // (ТЗ v2, §2.14, §5 «Итоговый баланс месяца... для тех, кто видит деньги»).
+    const canSeeMoney = !!req.member?.canSeeMoney;
+    const reconciliation = canSeeMoney ? await calculateMonthlyReconciliation(year, month) : null;
 
     res.json({
       user: {
         firstName: req.user.firstName,
         lastName: req.user.lastName,
       },
+      canSeeMoney,
       dateLabel: formatDateRu(today),
       todaySessions: todaySessions.map(serializeSession),
       unmarkedCount: unmarked.length,
-      balances: reconciliation.rows,
-      totalBalance: reconciliation.total,
+      balances: reconciliation ? reconciliation.rows : [],
+      totalBalance: reconciliation ? reconciliation.total : null,
       year,
       month,
     });
@@ -141,8 +146,15 @@ async function updateSession(req, res, next) {
       data.note = note;
     }
 
+    // «Кто отметил» (ТЗ v2, §2.14) — только если статус реально поменялся
+    // на этот раз, а не просто правится заметка или специалист задним числом.
+    if (data.status !== undefined) {
+      data.markedByUserId = req.user.id;
+      data.markedAt = new Date();
+    }
+
     const updated = await SessionModel.update(id, data);
-    await logAudit('Session', id, 'update', existing, updated);
+    await logAudit('Session', id, 'update', existing, updated, req.user.id);
 
     res.json(serializeSession(updated));
   } catch (err) {
@@ -174,9 +186,11 @@ async function createMakeup(req, res, next) {
       actualTrainerId: trainer.id,
       status: 'MAKEUP',
       makeupForSessionId: original.id,
+      markedByUserId: req.user.id,
+      markedAt: new Date(),
     });
 
-    await logAudit('Session', created.id, 'create', null, created);
+    await logAudit('Session', created.id, 'create', null, created, req.user.id);
 
     res.status(201).json(serializeSession(created));
   } catch (err) {
