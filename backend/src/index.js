@@ -101,10 +101,17 @@ async function start() {
 // Actual polling failures (409 during a Render rolling deploy, etc.) surface
 // via the global unhandledRejection handler above, not here — this catch is
 // only a fallback for a synchronous/setup-time failure in launch() itself.
+//
+// Deliberately NOT passing dropPendingUpdates: true — every deploy causes a
+// few seconds of 409 conflict while the old instance finishes shutting down
+// (see scheduleBotRelaunch above), and any message a real user sends during
+// that window is queued by Telegram, not lost. dropPendingUpdates would
+// throw that queued message away on every single relaunch instead of
+// processing it once polling resumes, which is exactly what happened here.
 async function launchBot() {
   try {
     console.log('Запуск Telegram-бота (long polling)...');
-    await bot.launch({ dropPendingUpdates: true });
+    await bot.launch();
   } catch (err) {
     scheduleBotRelaunch(err.message);
   }
