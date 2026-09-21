@@ -63,6 +63,7 @@ export const api = {
   createSlot: (data) => request('/schedule-slots', { method: 'POST', body: JSON.stringify(data) }),
   updateSlot: (id, data) => request(`/schedule-slots/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSlot: (id) => request(`/schedule-slots/${id}`, { method: 'DELETE' }),
+  applyScheduleFromDate: (date) => request('/schedule-slots/apply-from-date', { method: 'POST', body: JSON.stringify({ date }) }),
 
   getSessions: (params) => request(`/sessions?${new URLSearchParams(params).toString()}`),
   createSession: (data) => request('/sessions', { method: 'POST', body: JSON.stringify(data) }),
@@ -92,4 +93,11 @@ export const api = {
     if (!res.ok) throw new Error('Не удалось экспортировать отчёт');
     return res.blob();
   },
+
+  downloadBackup: async () => {
+    const res = await fetch(`${API_URL}/backup`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!res.ok) throw new Error('Не удалось скачать бэкап');
+    return res.blob();
+  },
+  restoreBackup: (backupJson) => request('/backup/restore', { method: 'POST', body: JSON.stringify(backupJson) }),
 };

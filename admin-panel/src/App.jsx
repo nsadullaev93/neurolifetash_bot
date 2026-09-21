@@ -11,6 +11,7 @@ import Payments from './pages/Payments';
 import ClosedDays from './pages/ClosedDays';
 import Reports from './pages/Reports';
 import GenerateMonth from './pages/GenerateMonth';
+import Backup from './pages/Backup';
 
 export default function App() {
   const [authed, setAuthed] = useState(!!getToken());
@@ -33,6 +34,7 @@ export default function App() {
         {page === 'closedDays' && <ClosedDays />}
         {page === 'reports' && <Reports />}
         {page === 'generateMonth' && <GenerateMonth />}
+        {page === 'backup' && <Backup />}
       </main>
     </div>
   );

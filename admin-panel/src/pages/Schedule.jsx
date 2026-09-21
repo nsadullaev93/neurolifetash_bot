@@ -4,15 +4,21 @@ import { WEEKDAY_NAMES } from '../utils/format';
 
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
 
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
 export default function Schedule() {
   const [slots, setSlots] = useState([]);
   const [trainers, setTrainers] = useState([]);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   const [trainerId, setTrainerId] = useState('');
   const [weekday, setWeekday] = useState('1');
   const [startTime, setStartTime] = useState('16:00');
   const [endTime, setEndTime] = useState('16:40');
+
+  const [applyDate, setApplyDate] = useState(todayIso());
+  const [applying, setApplying] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -57,10 +63,43 @@ export default function Schedule() {
     }
   }
 
+  async function applyFromDate() {
+    if (!confirm(`Пересоздать все ещё не отмеченные занятия с ${applyDate} до конца месяца по текущему шаблону? Уже отмеченные занятия не изменятся.`)) return;
+    setApplying(true);
+    setError('');
+    setSuccess('');
+    try {
+      const result = await api.applyScheduleFromDate(applyDate);
+      setSuccess(`Готово: удалено ${result.deletedCount}, создано заново ${result.created} занятий.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setApplying(false);
+    }
+  }
+
   return (
     <div>
       <div className="page-header"><h1>Шаблон расписания</h1></div>
       {error && <div className="error-box">{error}</div>}
+      {success && <div className="success-box">{success}</div>}
+
+      <div className="panel">
+        <h2>Применить изменения с даты</h2>
+        <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 0 }}>
+          После изменения слотов выше — пересоздаёт будущие ещё не отмеченные занятия по новому шаблону.
+          Уже отмеченные занятия никогда не трогает.
+        </p>
+        <div className="form-row">
+          <div className="field">
+            <label>Дата</label>
+            <input type="date" value={applyDate} onChange={(e) => setApplyDate(e.target.value)} />
+          </div>
+          <button className="btn btn-primary" onClick={applyFromDate} disabled={applying}>
+            {applying ? 'Применяем…' : 'Применить с даты…'}
+          </button>
+        </div>
+      </div>
 
       <div className="panel">
         <h2>Добавить слот</h2>
