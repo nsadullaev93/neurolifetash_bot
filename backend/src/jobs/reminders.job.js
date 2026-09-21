@@ -16,6 +16,7 @@ const { calculateMonthlyReconciliation } = require('../services/reconciliation.s
 const { closeMonth } = require('../services/settlement.service');
 const { getPeriodStats } = require('../services/stats.service');
 const { sendDueCheckins } = require('../services/checkin.service');
+const { createBackup } = require('../services/backup.service');
 const { formatMoney, formatMoneySigned } = require('../utils/money');
 const {
   todayDateOnly,
@@ -242,6 +243,26 @@ function startReminderJobs(bot) {
         }
       } catch (err) {
         console.error('Ошибка вопроса о праздничном дне:', err.message);
+      }
+    },
+    { timezone: config.timezone },
+  );
+
+  // Воскресенье, 21:00 — резервная копия данных семьи владельцу (ТЗ v2, §2.18).
+  cron.schedule(
+    '0 21 * * 0',
+    async () => {
+      try {
+        if (!config.ownerTelegramId) return;
+        const backup = await createBackup();
+        const dateKey = todayDateOnly().toISOString().slice(0, 10);
+        const buffer = Buffer.from(JSON.stringify(backup, null, 2), 'utf-8');
+        await bot.telegram.sendDocument(Number(config.ownerTelegramId), {
+          source: buffer,
+          filename: `backup_${dateKey}.json`,
+        });
+      } catch (err) {
+        console.error('Ошибка еженедельного бэкапа:', err.message);
       }
     },
     { timezone: config.timezone },

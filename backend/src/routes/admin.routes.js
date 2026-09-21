@@ -46,6 +46,9 @@ router.get('/users', adminController.listUsers);
 
 router.post('/generate-month', adminController.generateMonthHandler);
 
+router.get('/backup', adminController.downloadBackup);
+router.post('/backup/restore', adminController.restoreBackup);
+
 router.get('/reports/monthly', adminController.monthlyReport);
 router.get('/reports/forecast', adminController.forecastReport);
 router.get('/reports/monthly/export', adminController.exportMonthlyReport);

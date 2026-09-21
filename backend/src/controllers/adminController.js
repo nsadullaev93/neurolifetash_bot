@@ -12,6 +12,7 @@ const { generateMonth, regenerateFromDate } = require('../services/monthGenerato
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
 const { calculateForecast } = require('../services/forecast.service');
 const { getMonthlyReport, exportMonthlyXlsx } = require('../services/report.service');
+const { createBackup, restoreBackupTransaction } = require('../services/backup.service');
 const { logAudit } = require('../utils/audit');
 const { serializeSession } = require('./sessionController');
 const { serializePayment } = require('./paymentController');
@@ -437,6 +438,34 @@ async function generateMonthHandler(req, res, next) {
   }
 }
 
+// Резервная копия по требованию (ТЗ v2, §2.18) — та же кнопка «Скачать
+// бэкап» на будущее могла бы вызывать и еженедельный автоматический вариант.
+async function downloadBackup(req, res, next) {
+  try {
+    const backup = await createBackup();
+    const dateKey = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="backup_${dateKey}.json"`);
+    res.send(JSON.stringify(backup, null, 2));
+  } catch (err) {
+    next(err);
+  }
+}
+
+// «Восстановить из файла» (ТЗ v2, §2.18) — предпросмотр и подтверждение
+// делает сам Admin Panel перед вызовом; здесь только восстановление, в
+// одной транзакции (см. backup.service.js — упадёт что угодно, откатится всё).
+async function restoreBackup(req, res, next) {
+  try {
+    const backup = req.body;
+    const result = await restoreBackupTransaction(backup);
+    await logAudit('Family', 0, 'restore-backup', null, result);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // «Применить с даты…» на странице «Шаблон расписания» (ТЗ v2, §2.18) —
 // пересоздаёт будущие ещё не отмеченные занятия по обновлённому шаблону;
 // уже отмеченные занятия не трогает.
@@ -510,6 +539,8 @@ module.exports = {
   updateSlot,
   deleteSlot,
   applyScheduleFromDate,
+  downloadBackup,
+  restoreBackup,
   listSessions,
   createSession,
   updateSession,

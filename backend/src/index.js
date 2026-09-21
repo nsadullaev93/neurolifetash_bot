@@ -61,7 +61,9 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(cors());
-app.use(express.json());
+// 10mb — с запасом на восстановление из бэкапа (§2.18): у обычного JSON-запроса
+// такой объём не нужен, но файл с историей занятий за годы легко выйдет за 100kb по умолчанию.
+app.use(express.json({ limit: '10mb' }));
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
