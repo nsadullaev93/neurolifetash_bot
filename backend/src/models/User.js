@@ -46,11 +46,21 @@ async function updateReminderSettings(telegramId, { remindersOn, reminderTime })
   });
 }
 
-// status: 'PENDING' | 'APPROVED' | 'REJECTED'
+// status: 'PENDING' | 'APPROVED' | 'REJECTED'. Clears accessRequestNotifiedAt
+// so that if this user is ever moved back to PENDING later (manually, or by
+// a future "request access again" flow), a fresh notification goes out
+// instead of silently staying quiet because a row already existed.
 async function setAccessStatus(telegramId, status) {
   return prisma.user.update({
     where: { telegramId: BigInt(telegramId) },
-    data: { accessStatus: status },
+    data: { accessStatus: status, accessRequestNotifiedAt: null },
+  });
+}
+
+async function markAccessRequestNotified(telegramId) {
+  return prisma.user.update({
+    where: { telegramId: BigInt(telegramId) },
+    data: { accessRequestNotifiedAt: new Date() },
   });
 }
 
@@ -60,4 +70,5 @@ module.exports = {
   listAll,
   updateReminderSettings,
   setAccessStatus,
+  markAccessRequestNotified,
 };

@@ -26,17 +26,18 @@ enum AccessStatus {
 }
 
 model User {
-  id           Int          @id @default(autoincrement())
-  telegramId   BigInt       @unique
-  firstName    String
-  lastName     String?
-  username     String?
-  phone        String?
-  isAdmin      Boolean      @default(false)
-  remindersOn  Boolean      @default(true)
-  reminderTime String       @default("19:00")
-  accessStatus AccessStatus @default(PENDING)
-  createdAt    DateTime     @default(now())
+  id                      Int          @id @default(autoincrement())
+  telegramId              BigInt       @unique
+  firstName               String
+  lastName                String?
+  username                String?
+  phone                   String?
+  isAdmin                 Boolean      @default(false)
+  remindersOn             Boolean      @default(true)
+  reminderTime            String       @default("19:00")
+  accessStatus            AccessStatus @default(PENDING)
+  accessRequestNotifiedAt DateTime?
+  createdAt               DateTime     @default(now())
 }
 
 model Level {

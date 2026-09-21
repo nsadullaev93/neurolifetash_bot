@@ -25,16 +25,18 @@ async function resolveAccess(from) {
     return { status: 'approved', user };
   }
 
-  const existing = await UserModel.findByTelegramId(from.id);
-  const user = await UserModel.upsertFromTelegram(from);
+  let user = await UserModel.upsertFromTelegram(from);
 
   if (user.accessStatus === 'APPROVED') return { status: 'approved', user };
   if (user.accessStatus === 'REJECTED') return { status: 'rejected', user };
 
-  // PENDING — notify the owner only the first time we see this person,
-  // so repeated /start taps or Mini App loads don't spam the owner.
-  if (!existing) {
+  // PENDING — notify the owner once per pending "episode", tracked via
+  // accessRequestNotifiedAt rather than "is this a brand-new row": a user
+  // whose status was manually (or otherwise) reset back to PENDING must
+  // also get a fresh notification, not just users seen for the first time.
+  if (!user.accessRequestNotifiedAt) {
     await notifyOwnerOfRequest(user);
+    user = await UserModel.markAccessRequestNotified(from.id);
   }
   return { status: 'pending', user };
 }
