@@ -8,6 +8,7 @@ const familyController = require('../controllers/familyController');
 const diaryController = require('../controllers/diaryController');
 const statsController = require('../controllers/statsController');
 const UserModel = require('../models/User');
+const FamilyMemberModel = require('../models/FamilyMember');
 
 const router = express.Router();
 
@@ -30,14 +31,34 @@ router.post('/auth/telegram', (req, res) => {
 });
 
 router.get('/settings', (req, res) => {
-  res.json({ remindersOn: req.user.remindersOn, reminderTime: req.user.reminderTime });
+  res.json({
+    remindersOn: req.user.remindersOn,
+    reminderTime: req.user.reminderTime,
+    theme: req.member?.theme || 'light',
+    sessionPings: req.member?.sessionPings ?? true,
+    paymentPings: req.member?.paymentPings ?? true,
+    displayName: req.member?.displayName || req.user.firstName,
+  });
 });
 
 router.patch('/settings', async (req, res, next) => {
   try {
-    const { remindersOn, reminderTime } = req.body;
-    const updated = await UserModel.updateReminderSettings(req.user.telegramId, { remindersOn, reminderTime });
-    res.json({ remindersOn: updated.remindersOn, reminderTime: updated.reminderTime });
+    const { remindersOn, reminderTime, theme, sessionPings, paymentPings, displayName } = req.body;
+    const updatedUser = await UserModel.updateReminderSettings(req.user.telegramId, { remindersOn, reminderTime });
+    const updatedMember = await FamilyMemberModel.updateSelf(req.user.id, {
+      theme,
+      sessionPings,
+      paymentPings,
+      displayName,
+    });
+    res.json({
+      remindersOn: updatedUser.remindersOn,
+      reminderTime: updatedUser.reminderTime,
+      theme: updatedMember.theme,
+      sessionPings: updatedMember.sessionPings,
+      paymentPings: updatedMember.paymentPings,
+      displayName: updatedMember.displayName,
+    });
   } catch (err) {
     next(err);
   }

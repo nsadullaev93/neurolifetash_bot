@@ -58,8 +58,25 @@ async function setCanSeeMoney(id, canSeeMoney) {
   return prisma.familyMember.update({ where: { id: Number(id) }, data: { canSeeMoney } });
 }
 
+// Настройки, которые участник меняет сам себе: тема (§2.17) и какие
+// уведомления получать (§2.14) — в отличие от canSeeMoney/роли, тут не
+// нужны права владельца.
+async function updateSelf(userId, { theme, sessionPings, paymentPings, displayName }) {
+  const data = {};
+  if (theme !== undefined) data.theme = theme;
+  if (sessionPings !== undefined) data.sessionPings = sessionPings;
+  if (paymentPings !== undefined) data.paymentPings = paymentPings;
+  if (displayName !== undefined) data.displayName = displayName;
+
+  const familyId = await getFamilyId();
+  return prisma.familyMember.update({
+    where: { familyId_userId: { familyId, userId: Number(userId) } },
+    data,
+  });
+}
+
 async function remove(id) {
   return prisma.familyMember.delete({ where: { id: Number(id) } });
 }
 
-module.exports = { findByUserId, listAll, ensureForUser, createFromInvite, setCanSeeMoney, remove };
+module.exports = { findByUserId, listAll, ensureForUser, createFromInvite, setCanSeeMoney, updateSelf, remove };
