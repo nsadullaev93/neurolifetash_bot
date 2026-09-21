@@ -114,6 +114,26 @@ function startReminderJobs(bot) {
     },
     { timezone: config.timezone },
   );
+
+  // Каждые 10 минут — self-ping собственного публичного URL, чтобы Render
+  // (бесплатный тариф) не усыплял сервис после 15 минут без входящих запросов.
+  // Интервал (не привязан к таймзоне) — сработает даже если RENDER_EXTERNAL_URL
+  // недоступен локально: тогда задача просто не регистрируется.
+  if (config.externalUrl && config.selfPingEnabled) {
+    cron.schedule('*/10 * * * *', async () => {
+      try {
+        const res = await fetch(`${config.externalUrl}/api/health`);
+        if (!res.ok) {
+          console.error(`Self-ping: сервер ответил статусом ${res.status}`);
+        }
+      } catch (err) {
+        console.error('Self-ping не удался:', err.message);
+      }
+    });
+    console.log(`Self-ping включён: каждые 10 минут → ${config.externalUrl}/api/health`);
+  } else {
+    console.log('Self-ping отключён (нет RENDER_EXTERNAL_URL/SELF_URL или SELF_PING_ENABLED=false)');
+  }
 }
 
 module.exports = { startReminderJobs };

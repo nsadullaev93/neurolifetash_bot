@@ -11,6 +11,13 @@ module.exports = {
   timezone: process.env.TZ || 'Asia/Tashkent',
   allowDevLogin: (process.env.ALLOW_DEV_LOGIN || 'false').toLowerCase() === 'true',
 
+  // Render задаёт RENDER_EXTERNAL_URL автоматически для веб-сервисов с публичным
+  // адресом — вручную ничего настраивать не нужно. SELF_URL — запасной вариант
+  // для другого хостинга. Если ни то ни другое не задано (например, локально),
+  // self-ping просто не запускается.
+  externalUrl: process.env.RENDER_EXTERNAL_URL || process.env.SELF_URL || null,
+  selfPingEnabled: (process.env.SELF_PING_ENABLED || 'true').toLowerCase() === 'true',
+
   levels: {
     BEGINNER: { name: 'Начальный', rate: 230000 },
     MIDDLE: { name: 'Средний', rate: 277000 },
