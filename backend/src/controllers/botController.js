@@ -14,8 +14,9 @@ const InviteModel = require('../models/Invite');
 const { resolveAccess, isAllowedTelegramId } = require('../utils/access');
 const conversationState = require('../utils/conversationState');
 const { buildMonthlyReportPdf } = require('../services/pdfReport.service');
+const { buildDiaryPdf } = require('../services/pdfDiary.service');
 const { getChildName } = require('../utils/scope');
-const { prevMonthOf } = require('../utils/date');
+const { prevMonthOf, dateOnly, daysInMonth } = require('../utils/date');
 
 // Владелец семьи (ТЗ v2, §2.14) — источник истины теперь FamilyMember.role,
 // а не только OWNER_TELEGRAM_ID (тот остаётся внешним гейтом доступа к
@@ -197,6 +198,58 @@ function setupBot(bot) {
     } catch (err) {
       console.error('Не удалось сформировать PDF-отчёт:', err.message);
       await ctx.reply('Не получилось сформировать отчёт, попробуйте ещё раз чуть позже.');
+    }
+  });
+
+  // Дневник занятий за период в PDF (ТЗ v2, §2.15) — не денежные данные,
+  // доступно любому одобренному участнику семьи.
+  bot.command('diary', async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return;
+
+    const { year, month } = nowYearMonth();
+    const { year: prevYear, month: prevMonth } = prevMonthOf(year, month);
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('Текущий месяц', `diary_month:${year}:${month}`)],
+      [Markup.button.callback('Прошлый месяц', `diary_month:${prevYear}:${prevMonth}`)],
+    ]);
+    await ctx.reply('За какой месяц выгрузить дневник?', keyboard);
+  });
+
+  bot.action(/^diary_month:(\d+):(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+    await ctx.answerCbQuery();
+
+    const [, yearStr, monthStr] = ctx.match;
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('🇷🇺 Русский', `diary_lang:ru:${yearStr}:${monthStr}`),
+        Markup.button.callback("🇺🇿 O'zbekcha", `diary_lang:uz:${yearStr}:${monthStr}`),
+      ],
+    ]);
+    await ctx.reply('На каком языке?', keyboard);
+  });
+
+  bot.action(/^diary_lang:(ru|uz):(\d+):(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+    await ctx.answerCbQuery('Формирую дневник…');
+
+    const [, lang, yearStr, monthStr] = ctx.match;
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+
+    try {
+      const childName = await getChildName();
+      const from = dateOnly(year, month, 1);
+      const to = dateOnly(year, month, daysInMonth(year, month));
+      const pdf = await buildDiaryPdf(from, to, lang, childName);
+      const filename = `diary_${year}-${String(month).padStart(2, '0')}_${lang}.pdf`;
+      await ctx.replyWithDocument({ source: pdf, filename });
+    } catch (err) {
+      console.error('Не удалось сформировать PDF-дневник:', err.message);
+      await ctx.reply('Не получилось сформировать дневник, попробуйте ещё раз чуть позже.');
     }
   });
 
@@ -673,6 +726,7 @@ function setupBot(bot) {
       '/today — занятия на сегодня\n' +
       '/balance — баланс по специалистам за текущий месяц\n' +
       '/report — PDF-отчёт за месяц (русский/узбекский)\n' +
+      '/diary — дневник занятий за месяц в PDF\n' +
       '/myid — узнать свой Telegram ID\n' +
       (isOwner(ctx.from.id) ? '/users — список пользователей и отзыв доступа\n' : '') +
       (isOwner(ctx.from.id) ? '/invite — пригласить члена семьи\n' : '') +

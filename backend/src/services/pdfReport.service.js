@@ -1,86 +1,17 @@
 'use strict';
 
-const PDFDocument = require('pdfkit');
-const path = require('path');
-const { PassThrough } = require('stream');
 const { getMonthlyReport } = require('./report.service');
 const SessionModel = require('../models/Session');
-const { mixedText, mixedWidth } = require('../utils/pdfText');
 const { t, monthNameFor, formatDateFor } = require('../i18n/report');
 const { formatDateShort } = require('../utils/date');
-
-// Шрифт — Noto Sans, не Inter (ТЗ v2, §2.11, п. "если нет — использовать
-// Noto Sans"): decompress-из-woff2 файлы Inter давали баг конкретно в
-// pdfkit/fontkit при одновременной загрузке латинского и кириллического
-// подмножеств — часть кириллических слов переставала рисоваться, стоило
-// зарегистрировать оба шрифта в одном документе. У Noto Sans той же
-// проблемы нет — проверено на реальном тексте отчёта, включая ʻ/o‘ и g‘.
-const FONT_DIR = path.join(__dirname, '../../assets/fonts');
-const F = {
-  latin: path.join(FONT_DIR, 'Noto-Latin-Regular.ttf'),
-  latinBold: path.join(FONT_DIR, 'Noto-Latin-SemiBold.ttf'),
-  cyr: path.join(FONT_DIR, 'Noto-Cyrillic-Regular.ttf'),
-  cyrBold: path.join(FONT_DIR, 'Noto-Cyrillic-SemiBold.ttf'),
-};
-
-const MARGIN = 40;
-const PAGE_BOTTOM = 842 - MARGIN; // A4 height in pt minus margin
-
-function formatSum(amount, sumLabel) {
-  const abs = Math.round(Math.abs(amount))
-    .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-  return `${amount < 0 ? '−' : ''}${abs} ${sumLabel}`;
-}
-
-function formatSumSigned(amount, sumLabel) {
-  if (amount > 0) return `+${formatSum(amount, sumLabel)}`;
-  return formatSum(amount, sumLabel);
-}
-
-function registerFonts(doc) {
-  doc.registerFont('regular-latin', F.latin);
-  doc.registerFont('bold-latin', F.latinBold);
-  doc.registerFont('regular-cyr', F.cyr);
-  doc.registerFont('bold-cyr', F.cyrBold);
-}
-
-function text(doc, str, x, y, opts = {}) {
-  const bold = !!opts.bold;
-  doc.fontSize(opts.size || 10);
-  doc.fillColor(opts.color || '#111827');
-  mixedText(doc, str, x, y, {
-    latinFont: bold ? 'bold-latin' : 'regular-latin',
-    cyrFont: bold ? 'bold-cyr' : 'regular-cyr',
-    width: opts.width,
-    align: opts.align || 'left',
-    lineBreak: opts.lineBreak !== false,
-  });
-}
-
-function ensureSpace(doc, y, needed, onNewPage) {
-  if (y + needed > PAGE_BOTTOM) {
-    doc.addPage();
-    return onNewPage ? onNewPage() : MARGIN;
-  }
-  return y;
-}
+const { createPdfDoc, text, ensureSpace, formatSum, formatSumSigned, MARGIN, PAGE_BOTTOM } = require('./pdfBase');
 
 async function buildMonthlyReportPdf(year, month, lang, childName) {
   const L = t(lang);
   const report = await getMonthlyReport(year, month);
   const sessions = await SessionModel.listForMonth(year, month);
 
-  const doc = new PDFDocument({ size: 'A4', margin: MARGIN });
-  registerFonts(doc);
-
-  const stream = new PassThrough();
-  doc.pipe(stream);
-  const chunks = [];
-  stream.on('data', (c) => chunks.push(c));
-  const done = new Promise((resolve) => stream.on('end', () => resolve(Buffer.concat(chunks))));
-
-  const pageWidth = doc.page.width - MARGIN * 2;
+  const { doc, done, pageWidth } = createPdfDoc();
   let y = MARGIN;
 
   // 1. Шапка
@@ -125,8 +56,7 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
   for (const row of report.rows) {
     y = ensureSpace(doc, y, rowH);
     const notConducted = Math.max(row.paid - row.completed, 0);
-    const highlighted = row.mismatch;
-    if (highlighted) doc.rect(MARGIN, y, pageWidth, rowH).fill('#FEF3C7');
+    if (row.mismatch) doc.rect(MARGIN, y, pageWidth, rowH).fill('#FEF3C7');
 
     let x = MARGIN;
     const cells = [
@@ -141,7 +71,11 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
     ];
     cells.forEach((val, i) => {
       const c = cols[i];
-      text(doc, val, x + 4, y + 5, { size: 9, width: c.w - 8, color: i === 7 ? (row.balance < 0 ? '#B91C1C' : row.balance > 0 ? '#15803D' : '#111827') : '#111827' });
+      text(doc, val, x + 4, y + 5, {
+        size: 9,
+        width: c.w - 8,
+        color: i === 7 ? (row.balance < 0 ? '#B91C1C' : row.balance > 0 ? '#15803D' : '#111827') : '#111827',
+      });
       x += c.w;
     });
     y += rowH;
@@ -159,11 +93,11 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
 
   // 3. Разбивка непроведённых занятий по причинам
   if (report.missedBreakdown.length) {
-    y = ensureSpace(doc, y, 20, () => MARGIN);
+    y = ensureSpace(doc, y, 20);
     text(doc, L.missedByReasonTitle, MARGIN, y, { size: 11, bold: true });
     y += 18;
     for (const m of report.missedBreakdown) {
-      y = ensureSpace(doc, y, 14, () => MARGIN);
+      y = ensureSpace(doc, y, 14);
       const label = L.reasons[m.status] || m.label;
       text(doc, `${label}: ${m.count}`, MARGIN, y, { size: 9 });
       y += 14;
@@ -172,7 +106,7 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
   }
 
   // 4. Подробная таблица по дням
-  y = ensureSpace(doc, y, 40, () => MARGIN);
+  y = ensureSpace(doc, y, 40);
   text(doc, L.dailyDetailTitle, MARGIN, y, { size: 11, bold: true });
   y += 18;
 
@@ -220,7 +154,7 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
   y += 20;
 
   // 5. Итог крупно
-  y = ensureSpace(doc, y, 40, () => MARGIN);
+  y = ensureSpace(doc, y, 40);
   text(doc, `${L.total}: ${formatSumSigned(report.total, L.sum)}`, MARGIN, y, {
     size: 16,
     bold: true,
@@ -229,7 +163,7 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
   y += 50;
 
   // 6. Подписи
-  y = ensureSpace(doc, y, 60, () => MARGIN);
+  y = ensureSpace(doc, y, 60);
   const halfW = pageWidth / 2 - 20;
   text(doc, `${L.parent} ______________________`, MARGIN, y, { size: 10, width: halfW });
   text(doc, `${L.centerAdmin} ______________________`, MARGIN + pageWidth / 2, y, { size: 10, width: halfW });
