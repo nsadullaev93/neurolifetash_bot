@@ -21,7 +21,25 @@ process.on('uncaughtException', (err) => {
   console.error('Необработанная ошибка (uncaughtException):', err);
 });
 
+// ALLOW_DEV_LOGIN bypasses Telegram auth entirely — fine for local
+// development, but in production it would let anyone reach the family's
+// data with no authentication at all. Refuse to start rather than run
+// insecurely if this is ever misconfigured on a production deploy.
+if (config.allowDevLogin && process.env.NODE_ENV === 'production') {
+  console.error(
+    'ОШИБКА КОНФИГУРАЦИИ: ALLOW_DEV_LOGIN=true недопустим в продакшене (NODE_ENV=production). ' +
+      'Это отключает проверку авторизации Telegram для всех клиентских маршрутов. ' +
+      'Установите ALLOW_DEV_LOGIN=false в переменных окружения и перезапустите сервис.',
+  );
+  process.exit(1);
+}
+
 const app = express();
+
+// Render (and most hosts) put the app behind a reverse proxy — trust its
+// X-Forwarded-For so req.ip (used by the login rate limiter) reflects the
+// real client instead of the proxy's own address.
+app.set('trust proxy', 1);
 
 app.use(cors());
 app.use(express.json());
