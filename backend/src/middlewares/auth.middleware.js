@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const config = require('../config/default');
 const UserModel = require('../models/User');
-const { isAllowedTelegramId } = require('../utils/access');
+const { resolveAccess } = require('../utils/access');
 
 const DEV_TELEGRAM_ID = 1;
 
@@ -61,11 +61,14 @@ async function authMiddleware(req, res, next) {
       return res.status(401).json({ error: 'Не удалось подтвердить данные Telegram' });
     }
 
-    if (!isAllowedTelegramId(from.id)) {
-      return res.status(403).json({ error: 'Доступ к этому приложению ограничен' });
+    const { status, user } = await resolveAccess(from);
+    if (status === 'pending') {
+      return res.status(403).json({ error: 'Ожидает одобрения администратора' });
+    }
+    if (status === 'rejected') {
+      return res.status(403).json({ error: 'Доступ отклонён администратором' });
     }
 
-    const user = await UserModel.upsertFromTelegram(from);
     req.user = user;
     next();
   } catch (err) {

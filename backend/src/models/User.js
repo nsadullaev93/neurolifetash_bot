@@ -46,4 +46,18 @@ async function updateReminderSettings(telegramId, { remindersOn, reminderTime })
   });
 }
 
-module.exports = { findByTelegramId, upsertFromTelegram, listAll, updateReminderSettings };
+// status: 'PENDING' | 'APPROVED' | 'REJECTED'
+async function setAccessStatus(telegramId, status) {
+  return prisma.user.update({
+    where: { telegramId: BigInt(telegramId) },
+    data: { accessStatus: status },
+  });
+}
+
+module.exports = {
+  findByTelegramId,
+  upsertFromTelegram,
+  listAll,
+  updateReminderSettings,
+  setAccessStatus,
+};

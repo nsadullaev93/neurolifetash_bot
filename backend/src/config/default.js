@@ -27,6 +27,11 @@ module.exports = {
     .map((id) => id.trim())
     .filter(Boolean),
 
+  // Telegram ID владельца — получает запросы на доступ от новых пользователей
+  // (кнопки «Разрешить» / «Отклонить») и не требует одобрения сам. Свой ID
+  // можно узнать командой /myid у бота.
+  ownerTelegramId: process.env.OWNER_TELEGRAM_ID || null,
+
   levels: {
     BEGINNER: { name: 'Начальный', rate: 230000 },
     MIDDLE: { name: 'Средний', rate: 277000 },

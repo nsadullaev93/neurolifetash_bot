@@ -5,7 +5,7 @@ const SessionModel = require('../models/Session');
 const { todayDateOnly, formatDateRu, nowYearMonth } = require('../utils/date');
 const { formatMoneySigned } = require('../utils/money');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
-const { isAllowedTelegramId } = require('../utils/access');
+const { resolveAccess } = require('../utils/access');
 
 // Telegram rejects any inline button (web_app or plain url) pointing at
 // http://localhost — it requires a real public https:// address. Until
@@ -35,10 +35,18 @@ function setupBot(bot) {
   });
 
   bot.start(async (ctx) => {
-    if (!isAllowedTelegramId(ctx.from.id)) {
-      return ctx.reply('Этот бот приватный и недоступен для посторонних пользователей.');
+    const { status } = await resolveAccess(ctx.from);
+
+    if (status === 'pending') {
+      return ctx.reply(
+        'Ваш запрос на доступ отправлен администратору. ' +
+          'Как только он его рассмотрит, вы получите уведомление здесь же.',
+      );
     }
-    await UserModel.upsertFromTelegram(ctx.from);
+    if (status === 'rejected') {
+      return ctx.reply('Доступ к этому боту отклонён администратором.');
+    }
+
     const keyboard = webAppKeyboard();
     const note = keyboard ? '' : '\n\n(Кнопка появится после настройки ngrok — см. инструкцию.)';
     await ctx.reply(
@@ -50,8 +58,9 @@ function setupBot(bot) {
   });
 
   bot.command('today', async (ctx) => {
-    if (!isAllowedTelegramId(ctx.from.id)) return;
-    await UserModel.upsertFromTelegram(ctx.from);
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return;
+
     const today = todayDateOnly();
     const sessions = await SessionModel.listForDate(today);
 
@@ -70,8 +79,9 @@ function setupBot(bot) {
   });
 
   bot.command('balance', async (ctx) => {
-    if (!isAllowedTelegramId(ctx.from.id)) return;
-    await UserModel.upsertFromTelegram(ctx.from);
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return;
+
     const { year, month } = nowYearMonth();
     const report = await calculateMonthlyReconciliation(year, month);
 
@@ -89,10 +99,48 @@ function setupBot(bot) {
   });
 
   // Показывает Telegram ID отправителя. Не требует доступа и не создаёт
-  // пользователя — нужна только чтобы узнать, какой ID вписать в
-  // ALLOWED_TELEGRAM_IDS на Render.
+  // пользователя — нужна только чтобы узнать свой ID (для владельца — чтобы
+  // вписать его в OWNER_TELEGRAM_ID, для остальных — если понадобится
+  // добавить в ALLOWED_TELEGRAM_IDS в обход очереди запроса).
   bot.command('myid', (ctx) => {
     ctx.reply(`Ваш Telegram ID: ${ctx.from.id}`);
+  });
+
+  // Кнопки «Разрешить» / «Отклонить» из карточки запроса на доступ,
+  // которую видит только владелец (OWNER_TELEGRAM_ID).
+  bot.action(/^access_(approve|reject):(\d+)$/, async (ctx) => {
+    if (!config.ownerTelegramId || String(ctx.from.id) !== String(config.ownerTelegramId)) {
+      return ctx.answerCbQuery('Недостаточно прав', { show_alert: true });
+    }
+
+    const [, action, telegramIdStr] = ctx.match;
+    const newStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
+
+    try {
+      await UserModel.setAccessStatus(telegramIdStr, newStatus);
+    } catch (err) {
+      return ctx.answerCbQuery('Пользователь не найден', { show_alert: true });
+    }
+
+    await ctx.answerCbQuery(action === 'approve' ? 'Доступ разрешён' : 'Доступ отклонён');
+
+    const decisionLabel = action === 'approve' ? '✅ Разрешено' : '❌ Отклонено';
+    const originalText = ctx.callbackQuery.message?.text || '';
+    try {
+      await ctx.editMessageText(`${originalText}\n\n${decisionLabel}`);
+    } catch (err) {
+      console.error('Не удалось обновить карточку запроса на доступ:', err.message);
+    }
+
+    const notifyText =
+      action === 'approve'
+        ? 'Ваш доступ одобрен! Нажмите /start, чтобы открыть журнал занятий.'
+        : 'Ваш запрос на доступ отклонён.';
+    try {
+      await ctx.telegram.sendMessage(Number(telegramIdStr), notifyText);
+    } catch (err) {
+      console.error('Не удалось уведомить пользователя о решении по доступу:', err.message);
+    }
   });
 
   bot.help((ctx) =>
