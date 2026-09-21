@@ -1,6 +1,22 @@
 const TrainerModel = require('../models/Trainer');
 const ClosedDayModel = require('../models/ClosedDay');
-const { getMonthDateList, isoWeekday } = require('../utils/date');
+const SettlementModel = require('../models/Settlement');
+const { getMonthDateList, isoWeekday, prevMonthOf } = require('../utils/date');
+
+// Перенесённые расчёты ПРЕДЫДУЩЕГО месяца (ТЗ v2, §2.7, §2.9). Переплата
+// (balance > 0) уменьшает "к оплате", доплата, которую решили добавить
+// (balance < 0, статус CARRIED_OVER) — увеличивает. Знак уже заложен в
+// самом balance, поэтому формула для обоих случаев одна:
+// к_оплате = сумма − balance.
+async function getCarryAdjustments(year, month) {
+  const { year: prevYear, month: prevM } = prevMonthOf(year, month);
+  const settlements = await SettlementModel.listForMonth(prevYear, prevM);
+  const byTrainer = new Map();
+  for (const s of settlements) {
+    if (s.status === 'CARRIED_OVER') byTrainer.set(s.trainerId, s.balance);
+  }
+  return byTrainer;
+}
 
 // Plan = number of (day, slot) matches from the schedule template in the
 // given month, excluding closed days. This is the "план по графику" used
@@ -28,10 +44,13 @@ async function computePlanByTrainer(year, month) {
 
 async function calculateForecast(year, month) {
   const planByTrainer = await computePlanByTrainer(year, month);
+  const carryAdjustments = await getCarryAdjustments(year, month);
 
   const breakdown = planByTrainer.map(({ trainer, plan }) => {
     const rate = trainer.level.rate;
-    const amount = plan * rate;
+    const grossAmount = plan * rate;
+    const carryBalance = carryAdjustments.get(trainer.id) ?? 0;
+    const amount = grossAmount - carryBalance;
     return {
       trainerId: trainer.id,
       trainerName: trainer.name,
@@ -39,6 +58,8 @@ async function calculateForecast(year, month) {
       levelName: trainer.level.name,
       rate,
       plan,
+      grossAmount,
+      carryBalance,
       amount,
     };
   });

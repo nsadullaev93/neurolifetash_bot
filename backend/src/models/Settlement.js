@@ -32,4 +32,14 @@ async function upsert(year, month, trainerId, data) {
   });
 }
 
-module.exports = { listForMonth, listAll, findByYearMonthTrainer, upsert };
+// Для случаев, когда запись заведомо уже существует (balance посчитан
+// раньше, при закрытии месяца) — не требует полного набора полей create.
+async function update(year, month, trainerId, data) {
+  return prisma.settlement.update({
+    where: { year_month_trainerId: { year, month, trainerId: Number(trainerId) } },
+    data,
+    include: { trainer: true },
+  });
+}
+
+module.exports = { listForMonth, listAll, findByYearMonthTrainer, upsert, update };

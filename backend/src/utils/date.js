@@ -66,6 +66,14 @@ function daysInMonth(year, month) {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
+function nextMonthOf(year, month) {
+  return month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
+}
+
+function prevMonthOf(year, month) {
+  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+}
+
 function getMonthDateList(year, month) {
   const total = daysInMonth(year, month);
   const list = [];
@@ -126,6 +134,8 @@ module.exports = {
   isoWeekday,
   daysInMonth,
   getMonthDateList,
+  nextMonthOf,
+  prevMonthOf,
   isSameDate,
   isLastDayOfMonth,
   formatDateRu,

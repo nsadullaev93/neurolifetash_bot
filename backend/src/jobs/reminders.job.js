@@ -1,4 +1,5 @@
 const cron = require('node-cron');
+const { Markup } = require('telegraf');
 const config = require('../config/default');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
@@ -6,6 +7,7 @@ const { webAppKeyboard } = require('../controllers/botController');
 const { generateMonth } = require('../services/monthGenerator.service');
 const { calculateForecast } = require('../services/forecast.service');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
+const { closeMonth } = require('../services/settlement.service');
 const { formatMoney, formatMoneySigned } = require('../utils/money');
 const { todayDateOnly, currentHM, nowYearMonth, nowTz, isLastDayOfMonth, monthName } = require('../utils/date');
 
@@ -78,6 +80,7 @@ function startReminderJobs(bot) {
 
         const { year, month } = nowYearMonth();
         const report = await calculateMonthlyReconciliation(year, month);
+        const { pendingDecisions } = await closeMonth(year, month);
         const users = await UserModel.listAll();
 
         const lines = report.rows.map((r) => {
@@ -89,9 +92,30 @@ function startReminderJobs(bot) {
           `Итоговая сверка за ${monthName(month)} ${year}:\n\n${lines.join('\n')}\n\n` +
           `${totalEmoji} Общий итог: ${formatMoneySigned(report.total)}`;
 
+        // Переплата переносится автоматически. Доплата (баланс < 0) ждёт
+        // решения — по кнопке под сообщением для каждого такого специалиста.
+        const decisionKeyboard = pendingDecisions.length
+          ? Markup.inlineKeyboard(
+              pendingDecisions.flatMap((d) => [
+                [
+                  Markup.button.callback(
+                    `${d.trainerName}: оплатил отдельно`,
+                    `settlement_paid:${d.trainerId}:${year}:${month}`,
+                  ),
+                ],
+                [
+                  Markup.button.callback(
+                    `${d.trainerName}: добавить к следующей оплате`,
+                    `settlement_carry:${d.trainerId}:${year}:${month}`,
+                  ),
+                ],
+              ]),
+            )
+          : webAppKeyboard('Открыть отчёт');
+
         for (const user of users) {
           if (!user.remindersOn) continue;
-          await bot.telegram.sendMessage(Number(user.telegramId), text, webAppKeyboard('Открыть отчёт'));
+          await bot.telegram.sendMessage(Number(user.telegramId), text, decisionKeyboard);
         }
       } catch (err) {
         console.error('Ошибка итоговой сверки месяца:', err.message);

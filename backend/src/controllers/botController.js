@@ -3,8 +3,9 @@ const config = require('../config/default');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
 const { todayDateOnly, formatDateRu, nowYearMonth } = require('../utils/date');
-const { formatMoneySigned } = require('../utils/money');
+const { formatMoney, formatMoneySigned } = require('../utils/money');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
+const { markPaidSeparately, markCarriedOver } = require('../services/settlement.service');
 const { resolveAccess, isAllowedTelegramId } = require('../utils/access');
 
 function isOwner(telegramId) {
@@ -239,6 +240,56 @@ function setupBot(bot) {
       await ctx.telegram.sendMessage(Number(telegramIdStr), 'Ваш доступ к боту был отозван администратором.');
     } catch (err) {
       console.error('Не удалось уведомить пользователя об отзыве доступа:', err.message);
+    }
+  });
+
+  // Кнопки закрытия месяца при доплате (ТЗ v2, §2.9) — из итогового
+  // сообщения последнего дня месяца. Доступны любому, кто прошёл
+  // resolveAccess (полноценные права участников семьи — отдельная фаза).
+  bot.action(/^settlement_paid:(\d+):(\d+):(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+
+    const [, trainerIdStr, yearStr, monthStr] = ctx.match;
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    const trainerId = Number(trainerIdStr);
+
+    const report = await calculateMonthlyReconciliation(year, month);
+    const row = report.rows.find((r) => r.trainerId === trainerId);
+    const paidAmount = row ? Math.abs(row.balance) : 0;
+
+    await markPaidSeparately(year, month, trainerId, paidAmount);
+    await ctx.answerCbQuery('Отмечено: оплачено отдельно');
+
+    const originalText = ctx.callbackQuery.message?.text || '';
+    try {
+      await ctx.editMessageText(
+        `${originalText}\n\n✅ ${row ? row.trainerName : trainerId}: доплата ${formatMoney(paidAmount)} оплачена отдельно`,
+      );
+    } catch (err) {
+      console.error('Не удалось обновить сообщение о закрытии месяца:', err.message);
+    }
+  });
+
+  bot.action(/^settlement_carry:(\d+):(\d+):(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+
+    const [, trainerIdStr, yearStr, monthStr] = ctx.match;
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    const trainerId = Number(trainerIdStr);
+
+    const updated = await markCarriedOver(year, month, trainerId);
+    await ctx.answerCbQuery('Отмечено: добавлено к следующей оплате');
+
+    const trainerName = updated.trainer?.name || trainerId;
+    const originalText = ctx.callbackQuery.message?.text || '';
+    try {
+      await ctx.editMessageText(`${originalText}\n\n➡️ ${trainerName}: доплата добавлена к следующей оплате`);
+    } catch (err) {
+      console.error('Не удалось обновить сообщение о закрытии месяца:', err.message);
     }
   });
 
