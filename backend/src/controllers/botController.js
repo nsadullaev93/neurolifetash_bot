@@ -2,11 +2,13 @@ const { Markup } = require('telegraf');
 const config = require('../config/default');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
-const { todayDateOnly, formatDateRu, nowYearMonth } = require('../utils/date');
+const { todayDateOnly, formatDateRu, nowYearMonth, monthName } = require('../utils/date');
 const { formatMoney, formatMoneySigned } = require('../utils/money');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
 const { markPaidSeparately, markCarriedOver } = require('../services/settlement.service');
+const SettlementModel = require('../models/Settlement');
 const { resolveAccess, isAllowedTelegramId } = require('../utils/access');
+const conversationState = require('../utils/conversationState');
 
 function isOwner(telegramId) {
   return !!config.ownerTelegramId && String(telegramId) === String(config.ownerTelegramId);
@@ -290,6 +292,175 @@ function setupBot(bot) {
       await ctx.editMessageText(`${originalText}\n\n➡️ ${trainerName}: доплата добавлена к следующей оплате`);
     } catch (err) {
       console.error('Не удалось обновить сообщение о закрытии месяца:', err.message);
+    }
+  });
+
+  // Сверка с цифрами центра (ТЗ v2, §2.12). Запускается кнопкой
+  // «Внести цифры центра» из итогового сообщения месяца (добавляется
+  // ниже, к decisionKeyboard в reminders.job.js). Бот по очереди спрашивает
+  // число по каждому специалисту, затем показывает сравнение с кнопками
+  // «Принять цифру центра» / «Оставить свою» там, где цифры разошлись.
+  async function askCenterFigure(ctx, state) {
+    const trainer = state.trainers[state.index];
+    const guesses = [...new Set([trainer.completed - 2, trainer.completed - 1, trainer.completed, trainer.completed + 1, trainer.completed + 2])]
+      .filter((v) => v >= 0);
+    const keyboard = Markup.inlineKeyboard([
+      guesses.map((v) => Markup.button.callback(String(v), `centerfig_guess:${v}`)),
+      [Markup.button.callback('Другое', 'centerfig_other')],
+    ]);
+    await ctx.reply(
+      `Сколько занятий провёл(а) ${trainer.trainerName} по данным центра? (у нас отмечено: ${trainer.completed})`,
+      keyboard,
+    );
+  }
+
+  async function finishCenterFigures(ctx, state) {
+    for (const [trainerId, centerConducted] of Object.entries(state.answers)) {
+      await SettlementModel.update(state.year, state.month, Number(trainerId), { centerConducted });
+    }
+    conversationState.clear(ctx.from.id);
+
+    const report = await calculateMonthlyReconciliation(state.year, state.month);
+    const relevant = report.rows.filter((r) => state.answers[r.trainerId] !== undefined);
+
+    const lines = relevant.map((r) =>
+      r.mismatch ? `⚠️ ${r.trainerName}: у нас ${r.completed}, у центра ${r.centerConducted}` : `✅ ${r.trainerName}: ${r.completed} = ${r.centerConducted}`,
+    );
+    await ctx.reply(`📋 Сверка с центром · ${monthName(state.month)} ${state.year}\n\n${lines.join('\n')}`);
+
+    for (const r of relevant.filter((r) => r.mismatch)) {
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('Показать мои даты', `centerfig_dates:${r.trainerId}:${state.year}:${state.month}`)],
+        [
+          Markup.button.callback('Принять цифру центра', `centerfig_accept:${r.trainerId}:${state.year}:${state.month}`),
+          Markup.button.callback('Оставить свою', `centerfig_keep:${r.trainerId}:${state.year}:${state.month}`),
+        ],
+      ]);
+      await ctx.reply(`${r.trainerName}: у нас ${r.completed}, у центра ${r.centerConducted}`, keyboard);
+    }
+  }
+
+  bot.action(/^centerfigures_start:(\d+):(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+
+    const [, yearStr, monthStr] = ctx.match;
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    const report = await calculateMonthlyReconciliation(year, month);
+    if (report.rows.length === 0) {
+      return ctx.answerCbQuery('Нет данных за этот месяц', { show_alert: true });
+    }
+
+    await ctx.answerCbQuery();
+    conversationState.set(ctx.from.id, {
+      type: 'center_figures',
+      year,
+      month,
+      trainers: report.rows.map((r) => ({ trainerId: r.trainerId, trainerName: r.trainerName, completed: r.completed })),
+      index: 0,
+      answers: {},
+    });
+    await askCenterFigure(ctx, conversationState.get(ctx.from.id));
+  });
+
+  bot.action(/^centerfig_guess:(-?\d+)$/, async (ctx) => {
+    const state = conversationState.get(ctx.from.id);
+    if (!state || state.type !== 'center_figures') return ctx.answerCbQuery();
+
+    await ctx.answerCbQuery();
+    const value = Number(ctx.match[1]);
+    const trainer = state.trainers[state.index];
+    state.answers[trainer.trainerId] = value;
+    state.index++;
+
+    if (state.index >= state.trainers.length) {
+      await finishCenterFigures(ctx, state);
+    } else {
+      conversationState.set(ctx.from.id, state);
+      await askCenterFigure(ctx, state);
+    }
+  });
+
+  bot.action('centerfig_other', async (ctx) => {
+    const state = conversationState.get(ctx.from.id);
+    if (!state || state.type !== 'center_figures') return ctx.answerCbQuery();
+
+    await ctx.answerCbQuery();
+    state.awaitingText = true;
+    conversationState.set(ctx.from.id, state);
+    await ctx.reply('Введите число текстом.');
+  });
+
+  // Свободный текстовый ответ — только для «Другое» из сверки с центром.
+  // Регистрируется после всех bot.command(...), поэтому обычные команды
+  // сюда не попадают (Telegraf сам их перехватывает раньше).
+  bot.on('text', async (ctx, next) => {
+    const state = conversationState.get(ctx.from.id);
+    if (!state || state.type !== 'center_figures' || !state.awaitingText) return next();
+
+    const value = parseInt(ctx.message.text.trim(), 10);
+    if (!Number.isInteger(value) || value < 0) {
+      return ctx.reply('Нужно целое число ≥ 0. Попробуйте ещё раз.');
+    }
+
+    const trainer = state.trainers[state.index];
+    state.answers[trainer.trainerId] = value;
+    state.index++;
+    state.awaitingText = false;
+
+    if (state.index >= state.trainers.length) {
+      await finishCenterFigures(ctx, state);
+    } else {
+      conversationState.set(ctx.from.id, state);
+      await askCenterFigure(ctx, state);
+    }
+  });
+
+  bot.action(/^centerfig_dates:(\d+):(\d+):(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+    await ctx.answerCbQuery();
+
+    const [, trainerIdStr, yearStr, monthStr] = ctx.match;
+    const trainerId = Number(trainerIdStr);
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+
+    const sessions = await SessionModel.listForMonth(year, month);
+    const own = sessions.filter((s) => (s.actualTrainerId || s.plannedTrainerId) === trainerId);
+    if (own.length === 0) return ctx.reply('Занятий не найдено.');
+
+    const lines = own.map((s) => {
+      const emoji = s.status === 'COMPLETED' || s.status === 'MAKEUP' ? '✅' : s.status === 'PLANNED' ? '⬜' : '❌';
+      const dateLabel = formatDateRu(s.date);
+      return `${emoji} ${dateLabel} · ${config.statusLabels[s.status]}`;
+    });
+    await ctx.reply(`Даты по специалисту:\n\n${lines.join('\n')}`);
+  });
+
+  bot.action(/^centerfig_(accept|keep):(\d+):(\d+):(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+
+    const [, decision, trainerIdStr, yearStr, monthStr] = ctx.match;
+    const trainerId = Number(trainerIdStr);
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+
+    const report = await calculateMonthlyReconciliation(year, month);
+    const row = report.rows.find((r) => r.trainerId === trainerId);
+    if (!row) return ctx.answerCbQuery('Специалист не найден', { show_alert: true });
+
+    const agreedConducted = decision === 'accept' ? row.centerConducted : row.completed;
+    await SettlementModel.update(year, month, trainerId, { agreedConducted });
+
+    await ctx.answerCbQuery(decision === 'accept' ? 'Принята цифра центра' : 'Оставлена своя цифра');
+    const originalText = ctx.callbackQuery.message?.text || '';
+    try {
+      await ctx.editMessageText(`${originalText}\n\n${decision === 'accept' ? '✅ принята цифра центра' : '✅ оставлена своя цифра'} (${agreedConducted})`);
+    } catch (err) {
+      console.error('Не удалось обновить сообщение сверки с центром:', err.message);
     }
   });
 

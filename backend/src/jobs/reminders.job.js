@@ -125,24 +125,23 @@ function startReminderJobs(bot) {
 
         // Переплата переносится автоматически. Доплата (баланс < 0) ждёт
         // решения — по кнопке под сообщением для каждого такого специалиста.
-        const decisionKeyboard = pendingDecisions.length
-          ? Markup.inlineKeyboard(
-              pendingDecisions.flatMap((d) => [
-                [
-                  Markup.button.callback(
-                    `${d.trainerName}: оплатил отдельно`,
-                    `settlement_paid:${d.trainerId}:${year}:${month}`,
-                  ),
-                ],
-                [
-                  Markup.button.callback(
-                    `${d.trainerName}: добавить к следующей оплате`,
-                    `settlement_carry:${d.trainerId}:${year}:${month}`,
-                  ),
-                ],
-              ]),
-            )
-          : webAppKeyboard('Открыть отчёт');
+        // «Внести цифры центра» (§2.12) доступна всегда, независимо от знака баланса.
+        const decisionButtons = pendingDecisions.flatMap((d) => [
+          [
+            Markup.button.callback(
+              `${d.trainerName}: оплатил отдельно`,
+              `settlement_paid:${d.trainerId}:${year}:${month}`,
+            ),
+          ],
+          [
+            Markup.button.callback(
+              `${d.trainerName}: добавить к следующей оплате`,
+              `settlement_carry:${d.trainerId}:${year}:${month}`,
+            ),
+          ],
+        ]);
+        decisionButtons.push([Markup.button.callback('Внести цифры центра', `centerfigures_start:${year}:${month}`)]);
+        const decisionKeyboard = Markup.inlineKeyboard(decisionButtons);
 
         for (const user of users) {
           if (!user.remindersOn) continue;
