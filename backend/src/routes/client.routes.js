@@ -6,6 +6,7 @@ const paymentController = require('../controllers/paymentController');
 const reportController = require('../controllers/reportController');
 const familyController = require('../controllers/familyController');
 const diaryController = require('../controllers/diaryController');
+const statsController = require('../controllers/statsController');
 const UserModel = require('../models/User');
 
 const router = express.Router();
@@ -66,6 +67,9 @@ router.get('/sessions/:sessionId/notes', diaryController.listForSession);
 router.post('/sessions/:sessionId/notes', diaryController.createNote);
 router.patch('/notes/:id', diaryController.updateNote);
 router.delete('/notes/:id', diaryController.removeNote);
+
+router.get('/stats', statsController.stats);
+router.get('/stats/trend', statsController.trend);
 
 router.get('/family/members', familyController.listMembers);
 router.post('/family/invite', requireOwnerRole, familyController.createInvite);

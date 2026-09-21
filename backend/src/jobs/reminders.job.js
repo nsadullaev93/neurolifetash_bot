@@ -14,6 +14,7 @@ const {
 } = require('../services/forecast.service');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
 const { closeMonth } = require('../services/settlement.service');
+const { getPeriodStats } = require('../services/stats.service');
 const { formatMoney, formatMoneySigned } = require('../utils/money');
 const {
   todayDateOnly,
@@ -150,9 +151,19 @@ function startReminderJobs(bot) {
           return `${emoji} ${r.trainerName} — ${formatMoneySigned(r.balance)}`;
         });
         const totalEmoji = report.total > 0 ? '🟢' : report.total < 0 ? '🔴' : '⚪';
-        const text =
+        let text =
           `Итоговая сверка за ${monthName(month)} ${year}:\n\n${lines.join('\n')}\n\n` +
           `${totalEmoji} Общий итог: ${formatMoneySigned(report.total)}`;
+
+        // «С начала года: состоялось NN% занятий» (ТЗ v2, §2.16).
+        try {
+          const yearStats = await getPeriodStats({ year, month: 1 }, { year, month });
+          if (yearStats.total.attendanceRate != null) {
+            text += `\n\nС начала года: состоялось ${Math.round(yearStats.total.attendanceRate * 100)}% занятий`;
+          }
+        } catch (err) {
+          console.error('Не удалось посчитать статистику с начала года:', err.message);
+        }
 
         // Переплата переносится автоматически. Доплата (баланс < 0) ждёт
         // решения — по кнопке под сообщением для каждого такого специалиста.

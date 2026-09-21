@@ -17,6 +17,7 @@ const { buildMonthlyReportPdf } = require('../services/pdfReport.service');
 const { buildDiaryPdf } = require('../services/pdfDiary.service');
 const { getChildName } = require('../utils/scope');
 const { prevMonthOf, dateOnly, daysInMonth } = require('../utils/date');
+const { getPeriodStats } = require('../services/stats.service');
 
 // Владелец семьи (ТЗ v2, §2.14) — источник истины теперь FamilyMember.role,
 // а не только OWNER_TELEGRAM_ID (тот остаётся внешним гейтом доступа к
@@ -146,6 +147,33 @@ function setupBot(bot) {
       `${totalEmoji} Итого: ${formatMoneySigned(report.total)}`;
 
     await ctx.reply(text, webAppKeyboard('Открыть отчёт'));
+  });
+
+  // Краткая статистика за последние 3 месяца (ТЗ v2, §2.16). Проценты
+  // посещаемости видят все, денежные суммы — только у кого открыты деньги.
+  bot.command('stats', async (ctx) => {
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return;
+
+    const { year, month } = nowYearMonth();
+    let fromYear = year;
+    let fromMonth = month;
+    for (let i = 1; i < 3; i++) {
+      ({ year: fromYear, month: fromMonth } = prevMonthOf(fromYear, fromMonth));
+    }
+
+    const result = await getPeriodStats({ year: fromYear, month: fromMonth }, { year, month });
+    const member = await FamilyMemberModel.findByUserId(user.id);
+    const canSeeMoney = !!member?.canSeeMoney;
+
+    const pct = (v) => (v == null ? '—' : `${Math.round(v * 100)}%`);
+    const lines = result.rows.map((r) => `• ${r.name} — посещаемость ${pct(r.attendanceRate)}, надёжность ${pct(r.reliability)}`);
+    let text = `📊 Статистика за последние 3 месяца:\n\n${lines.join('\n')}\n\nВсего: состоялось ${pct(result.total.attendanceRate)} занятий`;
+    if (canSeeMoney) {
+      text += `\nПроведено на сумму: ${formatMoney(result.total.valueConducted)}`;
+    }
+
+    await ctx.reply(text, webAppKeyboard('Подробнее'));
   });
 
   // PDF-отчёт за месяц (ТЗ v2, §2.11): месяц → язык → документ в чат.
@@ -727,6 +755,7 @@ function setupBot(bot) {
       '/balance — баланс по специалистам за текущий месяц\n' +
       '/report — PDF-отчёт за месяц (русский/узбекский)\n' +
       '/diary — дневник занятий за месяц в PDF\n' +
+      '/stats — статистика за последние 3 месяца\n' +
       '/myid — узнать свой Telegram ID\n' +
       (isOwner(ctx.from.id) ? '/users — список пользователей и отзыв доступа\n' : '') +
       (isOwner(ctx.from.id) ? '/invite — пригласить члена семьи\n' : '') +
