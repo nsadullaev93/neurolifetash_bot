@@ -21,4 +21,11 @@ async function getChildId() {
   return childId;
 }
 
-module.exports = { getFamilyId, getChildId };
+// Не кэшируется, в отличие от id — имя можно поменять в любой момент
+// (Admin Panel), и отчёт должен видеть актуальное значение.
+async function getChildName() {
+  const child = await prisma.child.findFirstOrThrow();
+  return child.name;
+}
+
+module.exports = { getFamilyId, getChildId, getChildName };

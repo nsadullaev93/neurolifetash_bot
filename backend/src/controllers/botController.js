@@ -13,6 +13,9 @@ const FamilyMemberModel = require('../models/FamilyMember');
 const InviteModel = require('../models/Invite');
 const { resolveAccess, isAllowedTelegramId } = require('../utils/access');
 const conversationState = require('../utils/conversationState');
+const { buildMonthlyReportPdf } = require('../services/pdfReport.service');
+const { getChildName } = require('../utils/scope');
+const { prevMonthOf } = require('../utils/date');
 
 // Владелец семьи (ТЗ v2, §2.14) — источник истины теперь FamilyMember.role,
 // а не только OWNER_TELEGRAM_ID (тот остаётся внешним гейтом доступа к
@@ -142,6 +145,59 @@ function setupBot(bot) {
       `${totalEmoji} Итого: ${formatMoneySigned(report.total)}`;
 
     await ctx.reply(text, webAppKeyboard('Открыть отчёт'));
+  });
+
+  // PDF-отчёт за месяц (ТЗ v2, §2.11): месяц → язык → документ в чат.
+  bot.command('report', async (ctx) => {
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return;
+    const member = await FamilyMemberModel.findByUserId(user.id);
+    if (!member?.canSeeMoney) {
+      return ctx.reply('Владелец семьи пока не открыл вам доступ к деньгам.');
+    }
+
+    const { year, month } = nowYearMonth();
+    const { year: prevYear, month: prevMonth } = prevMonthOf(year, month);
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('Текущий месяц', `report_month:${year}:${month}`)],
+      [Markup.button.callback('Прошлый месяц', `report_month:${prevYear}:${prevMonth}`)],
+    ]);
+    await ctx.reply('За какой месяц сформировать отчёт?', keyboard);
+  });
+
+  bot.action(/^report_month:(\d+):(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+    await ctx.answerCbQuery();
+
+    const [, yearStr, monthStr] = ctx.match;
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('🇷🇺 Русский', `report_lang:ru:${yearStr}:${monthStr}`),
+        Markup.button.callback("🇺🇿 O'zbekcha", `report_lang:uz:${yearStr}:${monthStr}`),
+      ],
+    ]);
+    await ctx.reply('На каком языке?', keyboard);
+  });
+
+  bot.action(/^report_lang:(ru|uz):(\d+):(\d+)$/, async (ctx) => {
+    const { status } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+    await ctx.answerCbQuery('Формирую отчёт…');
+
+    const [, lang, yearStr, monthStr] = ctx.match;
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+
+    try {
+      const childName = await getChildName();
+      const pdf = await buildMonthlyReportPdf(year, month, lang, childName);
+      const filename = `sverka_${year}-${String(month).padStart(2, '0')}_${lang}.pdf`;
+      await ctx.replyWithDocument({ source: pdf, filename });
+    } catch (err) {
+      console.error('Не удалось сформировать PDF-отчёт:', err.message);
+      await ctx.reply('Не получилось сформировать отчёт, попробуйте ещё раз чуть позже.');
+    }
   });
 
   // Показывает Telegram ID отправителя. Не требует доступа и не создаёт
@@ -616,6 +672,7 @@ function setupBot(bot) {
       '/start — открыть журнал занятий\n' +
       '/today — занятия на сегодня\n' +
       '/balance — баланс по специалистам за текущий месяц\n' +
+      '/report — PDF-отчёт за месяц (русский/узбекский)\n' +
       '/myid — узнать свой Telegram ID\n' +
       (isOwner(ctx.from.id) ? '/users — список пользователей и отзыв доступа\n' : '') +
       (isOwner(ctx.from.id) ? '/invite — пригласить члена семьи\n' : '') +
