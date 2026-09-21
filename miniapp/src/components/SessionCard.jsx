@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { formatMoney } from '../utils/format';
+import { api } from '../api/client';
 
 const REASONS = [
   { status: 'TRAINER_ABSENT', label: 'Специалист отсутствовал' },
@@ -16,6 +17,29 @@ const NOT_DONE_STATUSES = [
 export default function SessionCard({ session, trainers, onUpdate, busy }) {
   const [showReasons, setShowReasons] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
+  const [showNote, setShowNote] = useState(false);
+  const [notes, setNotes] = useState([]);
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+
+  useEffect(() => {
+    if (!showNote) return;
+    api.getSessionNotes(session.id).then(setNotes).catch(() => {});
+  }, [showNote, session.id]);
+
+  async function saveNote() {
+    if (!noteText.trim()) return;
+    setSavingNote(true);
+    try {
+      const created = await api.createNote(session.id, noteText.trim());
+      setNotes((list) => [...list, created]);
+      setNoteText('');
+    } catch {
+      /* заметка не критична — молча не сохраняем при ошибке */
+    } finally {
+      setSavingNote(false);
+    }
+  }
 
   const isDone = session.isDone;
   const isNotDone = NOT_DONE_STATUSES.includes(session.status);
@@ -110,6 +134,32 @@ export default function SessionCard({ session, trainers, onUpdate, busy }) {
               <option key={t.id} value={t.id}>{t.name}</option>
             ))}
         </select>
+      )}
+
+      <button className="link-btn" onClick={() => setShowNote((v) => !v)}>
+        📝 {showNote ? 'Скрыть заметки' : 'Заметка'}
+      </button>
+
+      {showNote && (
+        <div>
+          {notes.map((n) => (
+            <div className="note-item" key={n.id}>
+              <div className="note-text">{n.text}</div>
+            </div>
+          ))}
+          <div className="form-group" style={{ marginTop: 8, marginBottom: 0 }}>
+            <textarea
+              className="form-input"
+              rows={2}
+              placeholder="Написать заметку…"
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+            />
+          </div>
+          <button className="btn btn-secondary" style={{ marginTop: 8 }} onClick={saveNote} disabled={savingNote || !noteText.trim()}>
+            {savingNote ? 'Сохранение…' : 'Сохранить'}
+          </button>
+        </div>
       )}
     </div>
   );

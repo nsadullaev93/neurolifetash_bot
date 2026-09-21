@@ -10,6 +10,7 @@ export default function Payments() {
   const [trainers, setTrainers] = useState([]);
   const [payments, setPayments] = useState([]);
   const [history, setHistory] = useState([]);
+  const [paymentStatus, setPaymentStatus] = useState(null);
   const [forecast, setForecast] = useState(null);
   const [showForecast, setShowForecast] = useState(false);
   const [error, setError] = useState('');
@@ -22,14 +23,16 @@ export default function Payments() {
 
   const load = useCallback(async () => {
     try {
-      const [trainersList, paymentsList, historyList] = await Promise.all([
+      const [trainersList, paymentsList, historyList, statusResult] = await Promise.all([
         api.getTrainers(),
         api.getPayments(year, month),
         api.getPaymentsHistory(),
+        api.getPaymentStatus(year, month),
       ]);
       setTrainers(trainersList);
       setPayments(paymentsList);
       setHistory(historyList);
+      setPaymentStatus(statusResult);
       if (!trainerId && trainersList.length) setTrainerId(String(trainersList[0].id));
     } catch (err) {
       setError(err.message);
@@ -135,6 +138,27 @@ export default function Payments() {
             <div className="balance-amount gray">{formatMoney(forecast.total)}</div>
           </div>
         </div>
+      )}
+
+      {paymentStatus && (
+        <>
+          <div className="section-title">Статус оплаты за месяц</div>
+          <div className="card">
+            {paymentStatus.rows.map((r) => (
+              <div className="balance-row" key={r.trainerId}>
+                <div>
+                  <div className="balance-name">{r.trainerName}</div>
+                  {r.status !== 'PAID' && (
+                    <div className="balance-detail">Осталось {formatMoney(r.remaining)}</div>
+                  )}
+                </div>
+                <span className={`badge ${r.status === 'PAID' ? 'green' : r.status === 'PARTIAL' ? 'yellow' : 'red'}`}>
+                  {r.status === 'PAID' ? 'Оплачено' : r.status === 'PARTIAL' ? 'Частично' : 'Не оплачено'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       <div className="section-title">Внести оплату</div>

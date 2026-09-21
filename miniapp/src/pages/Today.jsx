@@ -68,12 +68,16 @@ export default function Today({ goToCalendar }) {
         ))
       )}
 
-      <div className="section-title">Баланс за месяц</div>
-      <div className="card">
-        {data.balances.map((row) => (
-          <BalanceRow key={row.trainerId} row={row} />
-        ))}
-      </div>
+      {data.canSeeMoney && (
+        <>
+          <div className="section-title">Баланс за месяц</div>
+          <div className="card">
+            {data.balances.map((row) => (
+              <BalanceRow key={row.trainerId} row={row} />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -52,6 +52,29 @@ export const api = {
   exportMonthlyBlob: (year, month) => request(`/reports/monthly/export?year=${year}&month=${month}`),
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+
+  getPaymentStatus: (year, month) => request(`/reports/payment-status?year=${year}&month=${month}`),
+
+  getStats: (params) => request(`/stats?${new URLSearchParams(params).toString()}`),
+  getStatsTrend: (params) => request(`/stats/trend?${new URLSearchParams(params).toString()}`),
+
+  getDiary: (from, to, trainerId) =>
+    request(`/diary?${new URLSearchParams({ from, to, ...(trainerId ? { trainerId } : {}) }).toString()}`),
+  getSessionNotes: (sessionId) => request(`/sessions/${sessionId}/notes`),
+  createNote: (sessionId, text) => request(`/sessions/${sessionId}/notes`, { method: 'POST', body: JSON.stringify({ text }) }),
+  updateNote: (id, text) => request(`/notes/${id}`, { method: 'PATCH', body: JSON.stringify({ text }) }),
+  deleteNote: (id) => request(`/notes/${id}`, { method: 'DELETE' }),
+
+  getFamilyMembers: () => request('/family/members'),
+  createInvite: () => request('/family/invite', { method: 'POST' }),
+  updateFamilyMember: (id, data) => request(`/family/members/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  removeFamilyMember: (id) => request(`/family/members/${id}`, { method: 'DELETE' }),
+
+  getHolidays: () => request('/holidays'),
+  setHolidayStatus: (id, status) => request(`/holidays/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+
+  exportReportPdfBlob: (year, month, lang) => request(`/reports/monthly/export-pdf?year=${year}&month=${month}&lang=${lang}`),
+  exportDiaryPdfBlob: (from, to, lang) => request(`/diary/export-pdf?from=${from}&to=${to}&lang=${lang}`),
 };
 
 export { API_URL, getInitData };
