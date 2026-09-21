@@ -7,6 +7,7 @@ const reportController = require('../controllers/reportController');
 const familyController = require('../controllers/familyController');
 const diaryController = require('../controllers/diaryController');
 const statsController = require('../controllers/statsController');
+const holidayController = require('../controllers/holidayController');
 const UserModel = require('../models/User');
 const FamilyMemberModel = require('../models/FamilyMember');
 
@@ -82,8 +83,10 @@ router.get('/reports/monthly', requireMoneyAccess, reportController.monthly);
 router.get('/reports/forecast', requireMoneyAccess, reportController.forecast);
 router.get('/reports/payment-status', requireMoneyAccess, reportController.paymentStatus);
 router.get('/reports/monthly/export', requireMoneyAccess, reportController.exportMonthly);
+router.get('/reports/monthly/export-pdf', requireMoneyAccess, reportController.exportMonthlyPdf);
 
 router.get('/diary', diaryController.listPeriod);
+router.get('/diary/export-pdf', diaryController.exportPdf);
 router.get('/sessions/:sessionId/notes', diaryController.listForSession);
 router.post('/sessions/:sessionId/notes', diaryController.createNote);
 router.patch('/notes/:id', diaryController.updateNote);
@@ -91,6 +94,9 @@ router.delete('/notes/:id', diaryController.removeNote);
 
 router.get('/stats', statsController.stats);
 router.get('/stats/trend', statsController.trend);
+
+router.get('/holidays', holidayController.list);
+router.patch('/holidays/:id', holidayController.setStatus);
 
 router.get('/family/members', familyController.listMembers);
 router.post('/family/invite', requireOwnerRole, familyController.createInvite);

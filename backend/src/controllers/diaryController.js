@@ -1,6 +1,8 @@
 const SessionNoteModel = require('../models/SessionNote');
 const SessionModel = require('../models/Session');
 const { dateOnly } = require('../utils/date');
+const { buildDiaryPdf } = require('../services/pdfDiary.service');
+const { getChildName } = require('../utils/scope');
 
 function serializeNote(note) {
   return {
@@ -102,4 +104,23 @@ async function listPeriod(req, res, next) {
   }
 }
 
-module.exports = { listForSession, createNote, updateNote, removeNote, listPeriod };
+async function exportPdf(req, res, next) {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ error: 'Укажите from и to (YYYY-MM-DD)' });
+
+    const lang = req.query.lang === 'uz' ? 'uz' : 'ru';
+    const [fy, fm, fd] = from.split('-').map(Number);
+    const [ty, tm, td] = to.split('-').map(Number);
+    const childName = await getChildName();
+    const buffer = await buildDiaryPdf(dateOnly(fy, fm, fd), dateOnly(ty, tm, td), lang, childName);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="diary_${from}_${to}_${lang}.pdf"`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { listForSession, createNote, updateNote, removeNote, listPeriod, exportPdf };

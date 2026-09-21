@@ -4,6 +4,8 @@ const {
   calculatePaymentStatus,
   getUnconfirmedHolidayWarnings,
 } = require('../services/forecast.service');
+const { buildMonthlyReportPdf } = require('../services/pdfReport.service');
+const { getChildName } = require('../utils/scope');
 
 function parseYearMonth(req, res) {
   const year = parseInt(req.query.year, 10);
@@ -65,4 +67,22 @@ async function exportMonthly(req, res, next) {
   }
 }
 
-module.exports = { monthly, forecast, paymentStatus, exportMonthly };
+async function exportMonthlyPdf(req, res, next) {
+  try {
+    const ym = parseYearMonth(req, res);
+    if (!ym) return;
+    const lang = req.query.lang === 'uz' ? 'uz' : 'ru';
+    const childName = await getChildName();
+    const buffer = await buildMonthlyReportPdf(ym.year, ym.month, lang, childName);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="sverka_${ym.year}-${String(ym.month).padStart(2, '0')}_${lang}.pdf"`,
+    );
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { monthly, forecast, paymentStatus, exportMonthly, exportMonthlyPdf };
