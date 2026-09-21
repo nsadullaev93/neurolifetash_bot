@@ -5,7 +5,11 @@ const SessionModel = require('../models/Session');
 const { todayDateOnly, formatDateRu, nowYearMonth } = require('../utils/date');
 const { formatMoneySigned } = require('../utils/money');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
-const { resolveAccess } = require('../utils/access');
+const { resolveAccess, isAllowedTelegramId } = require('../utils/access');
+
+function isOwner(telegramId) {
+  return !!config.ownerTelegramId && String(telegramId) === String(config.ownerTelegramId);
+}
 
 // Telegram rejects any inline button (web_app or plain url) pointing at
 // http://localhost — it requires a real public https:// address. Until
@@ -109,7 +113,7 @@ function setupBot(bot) {
   // Кнопки «Разрешить» / «Отклонить» из карточки запроса на доступ,
   // которую видит только владелец (OWNER_TELEGRAM_ID).
   bot.action(/^access_(approve|reject):(\d+)$/, async (ctx) => {
-    if (!config.ownerTelegramId || String(ctx.from.id) !== String(config.ownerTelegramId)) {
+    if (!isOwner(ctx.from.id)) {
       return ctx.answerCbQuery('Недостаточно прав', { show_alert: true });
     }
 
@@ -143,16 +147,97 @@ function setupBot(bot) {
     }
   });
 
-  bot.help((ctx) =>
-    ctx.reply(
-      'Доступные команды:\n\n' +
-        '/start — открыть журнал занятий\n' +
-        '/today — занятия на сегодня\n' +
-        '/balance — баланс по специалистам за текущий месяц\n' +
-        '/myid — узнать свой Telegram ID\n' +
-        '/help — эта справка',
-    ),
-  );
+  // Список всех, у кого есть (или был) доступ, с кнопками отзыва — только
+  // для владельца (OWNER_TELEGRAM_ID).
+  bot.command('users', async (ctx) => {
+    if (!isOwner(ctx.from.id)) return;
+
+    const users = await UserModel.listAll();
+    const label = (u) => {
+      const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || 'Без имени';
+      const usernamePart = u.username ? ` (@${u.username})` : '';
+      return `${name}${usernamePart} — ${u.telegramId}`;
+    };
+
+    const trusted = users.filter((u) => isAllowedTelegramId(u.telegramId));
+    const approved = users.filter((u) => !isAllowedTelegramId(u.telegramId) && u.accessStatus === 'APPROVED');
+    const pending = users.filter((u) => !isAllowedTelegramId(u.telegramId) && u.accessStatus === 'PENDING');
+    const rejected = users.filter((u) => !isAllowedTelegramId(u.telegramId) && u.accessStatus === 'REJECTED');
+
+    const sections = [];
+    if (trusted.length) {
+      sections.push(
+        '🔒 Доверенный список (ALLOWED_TELEGRAM_IDS — отзывается только правкой этой переменной в Render, не кнопкой):\n' +
+          trusted.map(label).join('\n'),
+      );
+    }
+    if (approved.length) {
+      sections.push('✅ Одобрены через бота (можно отозвать кнопкой ниже):\n' + approved.map(label).join('\n'));
+    }
+    if (pending.length) {
+      sections.push('⏳ Ожидают решения:\n' + pending.map(label).join('\n'));
+    }
+    if (rejected.length) {
+      sections.push('❌ Отклонены:\n' + rejected.map(label).join('\n'));
+    }
+
+    await ctx.reply(sections.length ? sections.join('\n\n') : 'Пользователей пока нет.');
+
+    if (approved.length) {
+      const keyboard = Markup.inlineKeyboard(
+        approved.map((u) => [
+          Markup.button.callback(
+            `❌ Отозвать: ${u.firstName || u.telegramId}`,
+            `access_revoke:${u.telegramId}`,
+          ),
+        ]),
+      );
+      await ctx.reply('Отозвать доступ:', keyboard);
+    }
+  });
+
+  // Кнопка «Отозвать доступ» из /users — тоже только для владельца. Ставит
+  // REJECTED (это же снимает accessRequestNotifiedAt, см. setAccessStatus —
+  // если человек когда-нибудь попросит доступ снова, уведомление придёт заново).
+  bot.action(/^access_revoke:(\d+)$/, async (ctx) => {
+    if (!isOwner(ctx.from.id)) {
+      return ctx.answerCbQuery('Недостаточно прав', { show_alert: true });
+    }
+
+    const [, telegramIdStr] = ctx.match;
+
+    if (isAllowedTelegramId(telegramIdStr)) {
+      return ctx.answerCbQuery(
+        'Этот ID в доверенном списке ALLOWED_TELEGRAM_IDS — уберите его оттуда в Render, кнопка тут бессильна.',
+        { show_alert: true },
+      );
+    }
+
+    try {
+      await UserModel.setAccessStatus(telegramIdStr, 'REJECTED');
+    } catch (err) {
+      return ctx.answerCbQuery('Пользователь не найден', { show_alert: true });
+    }
+
+    await ctx.answerCbQuery('Доступ отозван');
+
+    try {
+      await ctx.telegram.sendMessage(Number(telegramIdStr), 'Ваш доступ к боту был отозван администратором.');
+    } catch (err) {
+      console.error('Не удалось уведомить пользователя об отзыве доступа:', err.message);
+    }
+  });
+
+  bot.help((ctx) => {
+    const commands =
+      '/start — открыть журнал занятий\n' +
+      '/today — занятия на сегодня\n' +
+      '/balance — баланс по специалистам за текущий месяц\n' +
+      '/myid — узнать свой Telegram ID\n' +
+      (isOwner(ctx.from.id) ? '/users — список пользователей и отзыв доступа\n' : '') +
+      '/help — эта справка';
+    return ctx.reply(`Доступные команды:\n\n${commands}`);
+  });
 }
 
 module.exports = { setupBot, webAppKeyboard };
