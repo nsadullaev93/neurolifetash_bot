@@ -2,7 +2,7 @@
 
 const { getMonthlyReport } = require('./report.service');
 const SessionModel = require('../models/Session');
-const { t, monthNameFor, formatDateFor } = require('../i18n/report');
+const { t, monthYearLabel, formatDateFor } = require('../i18n/report');
 const { formatDateShort } = require('../utils/date');
 const { createPdfDoc, text, ensureSpace, formatSum, formatSumSigned, MARGIN, PAGE_BOTTOM } = require('./pdfBase');
 
@@ -17,8 +17,7 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
   // 1. Шапка
   text(doc, L.reportTitle, MARGIN, y, { size: 18, bold: true });
   y += 26;
-  const monthLabel = monthNameFor(lang, month);
-  text(doc, `${monthLabel.charAt(0).toUpperCase()}${monthLabel.slice(1)} ${year}`, MARGIN, y, { size: 12, bold: true });
+  text(doc, monthYearLabel(lang, month, year), MARGIN, y, { size: 12, bold: true });
   y += 18;
   text(doc, `${L.generatedAt}: ${formatDateFor(lang, new Date())}`, MARGIN, y, { size: 9, color: '#6B7280' });
   y += 14;

@@ -6,6 +6,7 @@ const {
 } = require('../services/forecast.service');
 const { buildMonthlyReportPdf } = require('../services/pdfReport.service');
 const { getChildName } = require('../utils/scope');
+const { LANGS } = require('../i18n/report');
 
 function parseYearMonth(req, res) {
   const year = parseInt(req.query.year, 10);
@@ -71,7 +72,7 @@ async function exportMonthlyPdf(req, res, next) {
   try {
     const ym = parseYearMonth(req, res);
     if (!ym) return;
-    const lang = req.query.lang === 'uz' ? 'uz' : 'ru';
+    const lang = LANGS.includes(req.query.lang) ? req.query.lang : 'ru';
     const childName = await getChildName();
     const buffer = await buildMonthlyReportPdf(ym.year, ym.month, lang, childName);
     res.setHeader('Content-Type', 'application/pdf');

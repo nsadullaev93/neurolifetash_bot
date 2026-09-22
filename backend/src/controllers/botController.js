@@ -224,11 +224,12 @@ function setupBot(bot) {
         Markup.button.callback('🇷🇺 Русский', `report_lang:ru:${yearStr}:${monthStr}`),
         Markup.button.callback("🇺🇿 O'zbekcha", `report_lang:uz:${yearStr}:${monthStr}`),
       ],
+      [Markup.button.callback('🇨🇳 中文', `report_lang:zh:${yearStr}:${monthStr}`)],
     ]);
     await ctx.reply('На каком языке?', keyboard);
   });
 
-  bot.action(/^report_lang:(ru|uz):(\d+):(\d+)$/, async (ctx) => {
+  bot.action(/^report_lang:(ru|uz|zh):(\d+):(\d+)$/, async (ctx) => {
     const { status } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
     await ctx.answerCbQuery('Формирую отчёт…');
@@ -276,11 +277,12 @@ function setupBot(bot) {
         Markup.button.callback('🇷🇺 Русский', `diary_lang:ru:${yearStr}:${monthStr}`),
         Markup.button.callback("🇺🇿 O'zbekcha", `diary_lang:uz:${yearStr}:${monthStr}`),
       ],
+      [Markup.button.callback('🇨🇳 中文', `diary_lang:zh:${yearStr}:${monthStr}`)],
     ]);
     await ctx.reply('На каком языке?', keyboard);
   });
 
-  bot.action(/^diary_lang:(ru|uz):(\d+):(\d+)$/, async (ctx) => {
+  bot.action(/^diary_lang:(ru|uz|zh):(\d+):(\d+)$/, async (ctx) => {
     const { status } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
     await ctx.answerCbQuery('Формирую дневник…');

@@ -30,6 +30,7 @@
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
-    "prisma": "^5.20.0"
+    "prisma": "^5.20.0",
+    "subset-font": "^2.9.0"
   }
 }

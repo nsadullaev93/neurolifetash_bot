@@ -88,6 +88,9 @@ export default function ReportDiary() {
         <button className="btn btn-outline" onClick={() => exportPdf('uz')} disabled={!!exportingPdf}>
           {exportingPdf === 'uz' ? '…' : "🇺🇿 O'zbekcha"}
         </button>
+        <button className="btn btn-outline" onClick={() => exportPdf('zh')} disabled={!!exportingPdf}>
+          {exportingPdf === 'zh' ? '…' : '🇨🇳 中文'}
+        </button>
       </div>
     </>
   );

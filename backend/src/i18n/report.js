@@ -15,19 +15,35 @@ const MONTHS_UZ = [
   'yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun',
   'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr',
 ];
+// Китайский месяц — просто "N月" (цифра + иероглиф), а не название словом:
+// это и естественная разговорная форма, и не требует добавлять в шрифт
+// китайские иероглифы-числительные ради одной этой надписи.
+const MONTHS_ZH = Array.from({ length: 12 }, (_, i) => `${i + 1}月`);
 
 function monthNameFor(lang, month) {
-  return (lang === 'uz' ? MONTHS_UZ : MONTHS_RU)[month - 1];
+  if (lang === 'uz') return MONTHS_UZ[month - 1];
+  if (lang === 'zh') return MONTHS_ZH[month - 1];
+  return MONTHS_RU[month - 1];
 }
 
 // Дата в родительном падеже для "Дата формирования: 21 сентября 2026" —
 // узбекский не склоняется, поэтому используем тот же список месяцев.
+// Китайский формат — свой порядок (год-месяц-день, "2026年9月21日").
 function formatDateFor(lang, d) {
   const day = d.getUTCDate ? d.getUTCDate() : d.getDate();
   const month = (d.getUTCMonth ? d.getUTCMonth() : d.getMonth()) + 1;
   const year = d.getUTCFullYear ? d.getUTCFullYear() : d.getFullYear();
+  if (lang === 'zh') return `${year}年${month}月${day}日`;
   const monthLabel = lang === 'uz' ? MONTHS_UZ[month - 1] : MONTHS_RU_GEN[month - 1];
   return `${day} ${monthLabel} ${year}`;
+}
+
+// "Месяц год" в шапке акта сверки (pdfReport.service.js) — единственное
+// место, где порядок слов различается по языку (китайский — год впереди).
+function monthYearLabel(lang, month, year) {
+  if (lang === 'zh') return `${year}年${MONTHS_ZH[month - 1]}`;
+  const monthLabel = monthNameFor(lang, month);
+  return `${monthLabel.charAt(0).toUpperCase()}${monthLabel.slice(1)} ${year}`;
 }
 
 const dict = {
@@ -125,10 +141,66 @@ const dict = {
       RESCHEDULED: "Ko'chirilgan",
     },
   },
+  // Упрощённый китайский. Валюта остаётся суммой в сумах (семья платит в
+  // сумах, не юанях) — "苏姆" это транслитерация "сум", принятая в
+  // китайских финансовых текстах про Узбекистан, а не перевод валюты.
+  // Круглые скобки и слэш — обычные ASCII-символы, не полноширинные: так
+  // это соответствует стилю остальных языков (сравните ru/uz) и не
+  // расширяет набор символов, которые нужно вырезать в шрифт (assets/fonts,
+  // см. pdfBase.js).
+  zh: {
+    reportTitle: '课时核对单',
+    diaryTitle: '课时日记',
+    generatedAt: '生成日期',
+    child: '孩子',
+    trainer: '专家',
+    level: '级别',
+    rate: '每节课费用',
+    plan: '计划',
+    paid: '已付款',
+    conducted: '已完成',
+    centerConducted: '中心记录',
+    notConducted: '未完成',
+    balance: '余额',
+    overpayment: '多付',
+    surcharge: '补付',
+    status: '状态',
+    missedByReasonTitle: '未完成课时原因统计',
+    dailyDetailTitle: '每日课时明细',
+    date: '日期',
+    time: '时间',
+    note: '备注',
+    total: '总计',
+    parent: '家长',
+    centerAdmin: '中心管理员',
+    signature: '签名',
+    sum: '苏姆',
+    reasons: {
+      TRAINER_ABSENT: '专家缺席',
+      CHILD_SICK_CERT: '孩子生病(有证明)',
+      CHILD_SICK_NO_CERT: '孩子生病(无证明)',
+      CHILD_ABSENT: '孩子缺席',
+      CLOSED_DAY: '假日/中心休息',
+      RESCHEDULED: '已改期',
+    },
+    statusLabels: {
+      PLANNED: '已计划',
+      COMPLETED: '已完成',
+      MAKEUP: '补课',
+      TRAINER_ABSENT: '专家缺席',
+      CHILD_SICK_CERT: '孩子生病(有证明)',
+      CHILD_SICK_NO_CERT: '孩子生病(无证明)',
+      CHILD_ABSENT: '孩子缺席',
+      CLOSED_DAY: '假日/中心休息',
+      RESCHEDULED: '已改期',
+    },
+  },
 };
 
 function t(lang) {
   return dict[lang] || dict.ru;
 }
 
-module.exports = { t, monthNameFor, formatDateFor };
+const LANGS = Object.keys(dict);
+
+module.exports = { t, monthNameFor, formatDateFor, monthYearLabel, LANGS };

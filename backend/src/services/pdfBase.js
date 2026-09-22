@@ -18,6 +18,13 @@ const FONTS = {
   latinBold: path.join(FONT_DIR, 'Noto-Latin-SemiBold.ttf'),
   cyr: path.join(FONT_DIR, 'Noto-Cyrillic-Regular.ttf'),
   cyrBold: path.join(FONT_DIR, 'Noto-Cyrillic-SemiBold.ttf'),
+  // Noto Sans SC, обрезан до символов, реально используемых в китайском
+  // словаре (backend/src/i18n/report.js) — см. scripts/subset-cjk-font.js.
+  // Полный шрифт с китайскими иероглифами весит 8-17 МБ; обрезанный — на
+  // три порядка меньше, т.к. в PDF нужен только фиксированный набор из
+  // ~60 иероглифов словаря, а не вся китайская письменность.
+  cjk: path.join(FONT_DIR, 'Noto-CJK-SC-Subset-Regular.ttf'),
+  cjkBold: path.join(FONT_DIR, 'Noto-CJK-SC-Subset-Bold.ttf'),
 };
 
 const MARGIN = 40;
@@ -29,6 +36,8 @@ function createPdfDoc() {
   doc.registerFont('bold-latin', FONTS.latinBold);
   doc.registerFont('regular-cyr', FONTS.cyr);
   doc.registerFont('bold-cyr', FONTS.cyrBold);
+  doc.registerFont('regular-cjk', FONTS.cjk);
+  doc.registerFont('bold-cjk', FONTS.cjkBold);
 
   const stream = new PassThrough();
   doc.pipe(stream);
@@ -46,6 +55,7 @@ function text(doc, str, x, y, opts = {}) {
   mixedText(doc, str, x, y, {
     latinFont: bold ? 'bold-latin' : 'regular-latin',
     cyrFont: bold ? 'bold-cyr' : 'regular-cyr',
+    cjkFont: bold ? 'bold-cjk' : 'regular-cjk',
     width: opts.width,
     align: opts.align || 'left',
     lineBreak: opts.lineBreak !== false,

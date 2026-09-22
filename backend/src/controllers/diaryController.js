@@ -3,6 +3,7 @@ const SessionModel = require('../models/Session');
 const { dateOnly } = require('../utils/date');
 const { buildDiaryPdf } = require('../services/pdfDiary.service');
 const { getChildName } = require('../utils/scope');
+const { LANGS } = require('../i18n/report');
 
 function serializeNote(note) {
   return {
@@ -109,7 +110,7 @@ async function exportPdf(req, res, next) {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).json({ error: 'Укажите from и to (YYYY-MM-DD)' });
 
-    const lang = req.query.lang === 'uz' ? 'uz' : 'ru';
+    const lang = LANGS.includes(req.query.lang) ? req.query.lang : 'ru';
     const [fy, fm, fd] = from.split('-').map(Number);
     const [ty, tm, td] = to.split('-').map(Number);
     const childName = await getChildName();
