@@ -62,6 +62,33 @@ function withOverlapGuard(name, fn) {
   };
 }
 
+// Оповещение владельца об ошибках фоновых задач (аудит надёжности, фаза 4).
+// Раньше падение cron-джобы уходило только в console.error — в логи
+// Render, которые никто не читает, пока сам не заметит нестыковку (месяц
+// не закрылся, чекин не пришёл). Раз в час максимум на задачу — чтобы
+// продолжительный сбой (например, Neon недоступна) не заваливал владельца
+// одинаковыми сообщениями на каждом тике.
+const errorNotifyCooldown = new Map();
+const ERROR_NOTIFY_COOLDOWN_MS = 60 * 60 * 1000;
+
+async function notifyOwnerOfError(bot, jobName, err) {
+  console.error(`Ошибка фоновой задачи «${jobName}»:`, err.message);
+  if (!config.ownerTelegramId) return;
+
+  const last = errorNotifyCooldown.get(jobName) || 0;
+  if (Date.now() - last < ERROR_NOTIFY_COOLDOWN_MS) return;
+  errorNotifyCooldown.set(jobName, Date.now());
+
+  try {
+    await bot.telegram.sendMessage(
+      Number(config.ownerTelegramId),
+      `⚠️ Фоновая задача «${jobName}» не выполнилась:\n${err.message}\n\nПодробности — в логах Render. Если это разовый сбой, следующий тик обычно чинит сам; если повторяется — стоит проверить вручную.`,
+    );
+  } catch (notifyErr) {
+    console.error('Не удалось уведомить владельца об ошибке фоновой задачи:', notifyErr.message);
+  }
+}
+
 function startReminderJobs(bot) {
   // Every minute: send the "unmarked sessions today" reminder to any user
   // whose personal reminderTime matches the current time in Tashkent.
@@ -87,7 +114,7 @@ function startReminderJobs(bot) {
           );
         }
       } catch (err) {
-        console.error('Ошибка ежедневного напоминания:', err.message);
+        await notifyOwnerOfError(bot, 'напоминание о неотмеченных занятиях', err);
       }
     }),
     { timezone: config.timezone },
@@ -100,7 +127,7 @@ function startReminderJobs(bot) {
       try {
         await sendDueCheckins(bot);
       } catch (err) {
-        console.error('Ошибка отправки чат-чекинов:', err.message);
+        await notifyOwnerOfError(bot, 'чат-чекины', err);
       }
     }),
     { timezone: config.timezone },
@@ -135,7 +162,7 @@ function startReminderJobs(bot) {
           await bot.telegram.sendMessage(Number(user.telegramId), text, webAppKeyboard('Открыть оплаты'));
         }
       } catch (err) {
-        console.error('Ошибка месячного напоминания об оплате:', err.message);
+        await notifyOwnerOfError(bot, 'расчёт оплаты на месяц', err);
       }
     },
     { timezone: config.timezone },
@@ -166,7 +193,7 @@ function startReminderJobs(bot) {
           await bot.telegram.sendMessage(Number(user.telegramId), text, webAppKeyboard('Внести оплату'));
         }
       } catch (err) {
-        console.error('Ошибка напоминания об оплате (1-7 число):', err.message);
+        await notifyOwnerOfError(bot, 'напоминание об оплате (1-7 число)', err);
       }
     },
     { timezone: config.timezone },
@@ -255,7 +282,7 @@ function startReminderJobs(bot) {
           await bot.telegram.sendMessage(Number(user.telegramId), text, decisionKeyboard);
         }
       } catch (err) {
-        console.error('Ошибка итоговой сверки месяца:', err.message);
+        await notifyOwnerOfError(bot, 'итоговая сверка месяца', err);
       }
     },
     { timezone: config.timezone },
@@ -292,7 +319,7 @@ function startReminderJobs(bot) {
           }
         }
       } catch (err) {
-        console.error('Ошибка вопроса о праздничном дне:', err.message);
+        await notifyOwnerOfError(bot, 'вопрос о праздничном дне', err);
       }
     },
     { timezone: config.timezone },
@@ -312,7 +339,7 @@ function startReminderJobs(bot) {
           filename: `backup_${dateKey}.json`,
         });
       } catch (err) {
-        console.error('Ошибка еженедельного бэкапа:', err.message);
+        await notifyOwnerOfError(bot, 'еженедельный бэкап', err);
       }
     },
     { timezone: config.timezone },
@@ -327,7 +354,7 @@ function startReminderJobs(bot) {
         const { year, month } = nowYearMonth();
         await generateMonth(year, month);
       } catch (err) {
-        console.error('Ошибка автогенерации месяца:', err.message);
+        await notifyOwnerOfError(bot, 'автогенерация занятий месяца', err);
       }
     },
     { timezone: config.timezone },
