@@ -143,6 +143,10 @@ export default function Payments() {
       {paymentStatus && (
         <>
           <div className="section-title">Статус оплаты за месяц</div>
+          <div className="hint-text">
+            Сколько уже оплачено по сравнению с планом на весь месяц по графику — не с фактически проведёнными
+            занятиями (это показывает «Баланс» на вкладке «Отчёт»), поэтому цифры отличаются.
+          </div>
           <div className="card">
             {paymentStatus.rows.map((r) => (
               <div className="balance-row" key={r.trainerId}>

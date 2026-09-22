@@ -126,6 +126,13 @@ button, input, select {
   color: var(--text);
 }
 
+.hint-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  margin: -4px 0 10px;
+}
+
 .card {
   background: var(--card-bg);
   border: 1px solid var(--border);
