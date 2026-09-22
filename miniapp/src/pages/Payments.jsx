@@ -133,9 +133,9 @@ export default function Payments() {
 
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <button className="btn-sm-inline" onClick={() => shiftForecastMonth(-1)} aria-label="Предыдущий месяц">◀</button>
+          <button className="icon-btn" onClick={() => shiftForecastMonth(-1)} aria-label="Предыдущий месяц">‹</button>
           <div style={{ fontWeight: 700 }}>{RU_MONTHS_NOM[forecastMonth - 1]} {forecastYear}</div>
-          <button className="btn-sm-inline" onClick={() => shiftForecastMonth(1)} aria-label="Следующий месяц">▶</button>
+          <button className="icon-btn" onClick={() => shiftForecastMonth(1)} aria-label="Следующий месяц">›</button>
         </div>
         <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => loadForecast()}>
           Рассчитать оплату на месяц
