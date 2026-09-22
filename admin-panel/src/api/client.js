@@ -81,6 +81,7 @@ export const api = {
   deleteClosedDay: (id) => request(`/closed-days/${id}`, { method: 'DELETE' }),
 
   getUsers: () => request('/users'),
+  getAuditLog: () => request('/audit-log'),
 
   generateMonth: (year, month) => request('/generate-month', { method: 'POST', body: JSON.stringify({ year, month }) }),
 

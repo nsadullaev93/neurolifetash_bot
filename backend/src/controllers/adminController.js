@@ -13,7 +13,7 @@ const { calculateMonthlyReconciliation } = require('../services/reconciliation.s
 const { calculateForecast } = require('../services/forecast.service');
 const { getMonthlyReport, exportMonthlyXlsx } = require('../services/report.service');
 const { createBackup, restoreBackupTransaction } = require('../services/backup.service');
-const { logAudit } = require('../utils/audit');
+const { logAudit, listRecent: listRecentAudit } = require('../utils/audit');
 const { serializeSession } = require('./sessionController');
 const { serializePayment } = require('./paymentController');
 const { nowYearMonth, dateOnly, todayDateOnly } = require('../utils/date');
@@ -524,6 +524,16 @@ async function applyScheduleFromDate(req, res, next) {
   }
 }
 
+// ---------- audit log ----------
+
+async function listAuditLog(req, res, next) {
+  try {
+    res.json(await listRecentAudit(100));
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ---------- reports ----------
 
 async function monthlyReport(req, res, next) {
@@ -597,4 +607,5 @@ module.exports = {
   deleteClosedDay,
   listUsers,
   generateMonthHandler,
+  listAuditLog,
 };

@@ -12,6 +12,7 @@ const PAGES = [
   { id: 'reports', label: 'Отчёты' },
   { id: 'generateMonth', label: 'Генерация месяца' },
   { id: 'backup', label: 'Резервная копия' },
+  { id: 'auditLog', label: 'История изменений' },
 ];
 
 export default function Sidebar({ active, onChange }) {

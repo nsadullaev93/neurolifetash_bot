@@ -43,6 +43,7 @@ router.post('/closed-days', adminController.createClosedDay);
 router.delete('/closed-days/:id', adminController.deleteClosedDay);
 
 router.get('/users', adminController.listUsers);
+router.get('/audit-log', adminController.listAuditLog);
 
 router.post('/generate-month', adminController.generateMonthHandler);
 

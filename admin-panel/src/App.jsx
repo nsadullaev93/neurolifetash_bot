@@ -12,6 +12,7 @@ import ClosedDays from './pages/ClosedDays';
 import Reports from './pages/Reports';
 import GenerateMonth from './pages/GenerateMonth';
 import Backup from './pages/Backup';
+import AuditLog from './pages/AuditLog';
 
 export default function App() {
   const [authed, setAuthed] = useState(!!getToken());
@@ -35,6 +36,7 @@ export default function App() {
         {page === 'reports' && <Reports />}
         {page === 'generateMonth' && <GenerateMonth />}
         {page === 'backup' && <Backup />}
+        {page === 'auditLog' && <AuditLog />}
       </main>
     </div>
   );
