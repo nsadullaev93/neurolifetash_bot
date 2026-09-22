@@ -1,6 +1,6 @@
 const express = require('express');
 const adminMiddleware = require('../middlewares/admin.middleware');
-const { loginRateLimiter } = require('../middlewares/rateLimit.middleware');
+const { loginRateLimiter, restoreRateLimiter } = require('../middlewares/rateLimit.middleware');
 const adminController = require('../controllers/adminController');
 
 const router = express.Router();
@@ -47,7 +47,7 @@ router.get('/users', adminController.listUsers);
 router.post('/generate-month', adminController.generateMonthHandler);
 
 router.get('/backup', adminController.downloadBackup);
-router.post('/backup/restore', adminController.restoreBackup);
+router.post('/backup/restore', restoreRateLimiter, adminController.restoreBackup);
 
 router.get('/reports/monthly', adminController.monthlyReport);
 router.get('/reports/forecast', adminController.forecastReport);

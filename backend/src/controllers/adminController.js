@@ -452,12 +452,45 @@ async function downloadBackup(req, res, next) {
   }
 }
 
+// Формы бэкапа, которые restoreBackup умеет восстанавливать (см.
+// backup.service.js#restoreBackup) — проверяется ДО открытия транзакции
+// (аудит надёжности, фаза 5): без этого явно битый файл всё равно занимал
+// слот в небольшом пуле соединений Prisma на время transaction-таймаута
+// (до 60 секунд), прежде чем упасть на первой же строке.
+const BACKUP_ARRAY_FIELDS = [
+  'children',
+  'users',
+  'familyMembers',
+  'levels',
+  'trainers',
+  'scheduleSlots',
+  'sessions',
+  'holidays',
+  'closedDays',
+  'monthlyPayments',
+  'settlements',
+  'sessionNotes',
+];
+
+function validateBackupShape(backup) {
+  if (!backup || typeof backup !== 'object') return 'Файл не похож на бэкап (не JSON-объект)';
+  if (backup.version !== 1) return 'Неизвестная версия формата бэкапа';
+  if (!backup.family || typeof backup.family !== 'object') return 'В файле нет данных family';
+  for (const field of BACKUP_ARRAY_FIELDS) {
+    if (!Array.isArray(backup[field])) return `Поле "${field}" отсутствует или не является списком`;
+  }
+  return null;
+}
+
 // «Восстановить из файла» (ТЗ v2, §2.18) — предпросмотр и подтверждение
 // делает сам Admin Panel перед вызовом; здесь только восстановление, в
 // одной транзакции (см. backup.service.js — упадёт что угодно, откатится всё).
 async function restoreBackup(req, res, next) {
   try {
     const backup = req.body;
+    const shapeError = validateBackupShape(backup);
+    if (shapeError) return res.status(400).json({ error: shapeError });
+
     const result = await restoreBackupTransaction(backup);
     await logAudit('Family', 0, 'restore-backup', null, result);
     res.json(result);
@@ -472,9 +505,18 @@ async function restoreBackup(req, res, next) {
 async function applyScheduleFromDate(req, res, next) {
   try {
     const { date } = req.body;
-    if (!date) return res.status(400).json({ error: 'Укажите date (YYYY-MM-DD)' });
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Укажите date в формате YYYY-MM-DD' });
+    }
     const [y, m, d] = date.split('-').map(Number);
-    const result = await regenerateFromDate(dateOnly(y, m, d));
+    const parsed = dateOnly(y, m, d);
+    // dateOnly(2026, 13, 40) не бросает исключение — JS Date молча
+    // "перекатывает" месяц/день дальше. Сверяем обратно с исходной строкой,
+    // чтобы явно отклонить такой ввод, а не молча пересоздать не тот диапазон.
+    if (parsed.toISOString().slice(0, 10) !== date) {
+      return res.status(400).json({ error: 'Некорректная дата' });
+    }
+    const result = await regenerateFromDate(parsed);
     await logAudit('ScheduleSlot', 0, 'apply-from-date', null, { date, ...result });
     res.json(result);
   } catch (err) {
