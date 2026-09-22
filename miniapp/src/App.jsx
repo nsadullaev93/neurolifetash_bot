@@ -17,9 +17,29 @@ function applyTheme(theme) {
   }
 }
 
+// Баннер офлайна (аудит надёжности, фаза 8) — отдельно от точечных
+// «Failed to fetch» на каждом экране: явно называет причину (нет
+// соединения), а не выглядит как поломка приложения, и сам убирается,
+// когда сеть возвращается — без перезагрузки.
+function useOnlineStatus() {
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+  return online;
+}
+
 export default function App() {
   const [tab, setTab] = useState('today');
   const [me, setMe] = useState(null);
+  const online = useOnlineStatus();
 
   const loadMe = useCallback(async () => {
     try {
@@ -42,6 +62,7 @@ export default function App() {
 
   return (
     <div className="app">
+      {!online && <div className="offline-banner">Нет соединения — данные могут быть неактуальны</div>}
       <Suspense fallback={<div className="screen"><div className="center-loading">Загрузка…</div></div>}>
         {tab === 'today' && <Today goToCalendar={() => setTab('calendar')} />}
         {tab === 'calendar' && <Calendar />}
