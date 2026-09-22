@@ -34,6 +34,20 @@ function isOwner(telegramId) {
   return !!config.ownerTelegramId && String(telegramId) === String(config.ownerTelegramId);
 }
 
+// Убирает инлайн-кнопки с сообщения, по которому только что нажали (аудит
+// надёжности, фаза 6). Такие одноразовые шаги диалога, как выбор месяца/
+// языка для /report и /diary, раньше оставались бессрочно нажимаемыми —
+// не ломались, но зря собирали дубли отчётов при случайном повторном тапе.
+// Не критично, если сообщение старше 48ч и Telegram не даёт его
+// редактировать — тогда просто оставляем как есть.
+async function clearInlineButtons(ctx) {
+  try {
+    await ctx.editMessageReplyMarkup(undefined);
+  } catch (err) {
+    console.error('Не удалось убрать инлайн-кнопки:', err.message);
+  }
+}
+
 // Telegram rejects any inline button (web_app or plain url) pointing at
 // http://localhost — it requires a real public https:// address. Until
 // ngrok is set up (see final setup guide), WEBAPP_URL is still localhost,
@@ -82,7 +96,7 @@ function setupBot(bot) {
         await ctx.reply('Добро пожаловать в семью! Нажмите кнопку, чтобы открыть журнал занятий.', webAppKeyboard());
         return;
       }
-      await ctx.reply('Пригласительная ссылка недействительна или уже использована.');
+      await ctx.reply(await InviteModel.diagnoseFailure(payload.slice(4)));
     }
 
     const { status } = await resolveAccess(ctx.from);
@@ -202,6 +216,7 @@ function setupBot(bot) {
     const { status } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
     await ctx.answerCbQuery();
+    await clearInlineButtons(ctx); // «За какой месяц» уже отвечено — кнопки больше не нужны
 
     const [, yearStr, monthStr] = ctx.match;
     const keyboard = Markup.inlineKeyboard([
@@ -217,6 +232,7 @@ function setupBot(bot) {
     const { status } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
     await ctx.answerCbQuery('Формирую отчёт…');
+    await clearInlineButtons(ctx);
 
     const [, lang, yearStr, monthStr] = ctx.match;
     const year = Number(yearStr);
@@ -252,6 +268,7 @@ function setupBot(bot) {
     const { status } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
     await ctx.answerCbQuery();
+    await clearInlineButtons(ctx);
 
     const [, yearStr, monthStr] = ctx.match;
     const keyboard = Markup.inlineKeyboard([
@@ -267,6 +284,7 @@ function setupBot(bot) {
     const { status } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
     await ctx.answerCbQuery('Формирую дневник…');
+    await clearInlineButtons(ctx);
 
     const [, lang, yearStr, monthStr] = ctx.match;
     const year = Number(yearStr);
@@ -559,12 +577,24 @@ function setupBot(bot) {
     const keyboard = Markup.inlineKeyboard([
       guesses.map((v) => Markup.button.callback(String(v), `centerfig_guess:${v}`)),
       [Markup.button.callback('Другое', 'centerfig_other')],
+      [Markup.button.callback('✖️ Отменить сверку с центром', 'centerfig_cancel')],
     ]);
     await ctx.reply(
       `Сколько занятий провёл(а) ${trainer.trainerName} по данным центра? (у нас отмечено: ${trainer.completed})`,
       keyboard,
     );
   }
+
+  // Явная отмена многошагового диалога (аудит надёжности, фаза 6) — раньше
+  // единственным способом выйти было проигнорировать все сообщения бота.
+  bot.action('centerfig_cancel', async (ctx) => {
+    const state = conversationState.get(ctx.from.id);
+    if (!state || state.type !== 'center_figures') return ctx.answerCbQuery();
+
+    conversationState.clear(ctx.from.id);
+    await ctx.answerCbQuery('Сверка с центром отменена');
+    await ctx.reply('Сверка с центром отменена — ничего не сохранено. Начать заново можно из итогового сообщения месяца.');
+  });
 
   async function finishCenterFigures(ctx, state) {
     for (const [trainerId, centerConducted] of Object.entries(state.answers)) {
@@ -649,9 +679,17 @@ function setupBot(bot) {
   // Свободный текстовый ответ — только для «Другое» из сверки с центром.
   // Регистрируется после всех bot.command(...), поэтому обычные команды
   // сюда не попадают (Telegraf сам их перехватывает раньше).
+  //
+  // Подсказка вместо тишины (аудит надёжности, фаза 6): если диалог сверки
+  // с центром активен, но сейчас ожидается нажатие кнопки (не «Другое»), а
+  // пользователь всё равно написал текст — раньше сообщение просто молча
+  // терялось (next() без ответа). Теперь подсказываем, что нажать.
   bot.on('text', async (ctx, next) => {
     const state = conversationState.get(ctx.from.id);
-    if (!state || state.type !== 'center_figures' || !state.awaitingText) return next();
+    if (!state || state.type !== 'center_figures') return next();
+    if (!state.awaitingText) {
+      return ctx.reply('Выберите число кнопкой выше (или «Другое», чтобы ввести своё) — или отмените сверку кнопкой «Отменить».');
+    }
 
     const value = parseInt(ctx.message.text.trim(), 10);
     if (!Number.isInteger(value) || value < 0) {

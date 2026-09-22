@@ -31,4 +31,17 @@ async function claim(code) {
   return prisma.invite.findUnique({ where: { code } });
 }
 
-module.exports = { create, claim };
+// Только для сообщения пользователю после неудачного claim() — читает код
+// ещё раз, отдельно от атомарной попытки выше, просто чтобы сказать
+// точнее, что пошло не так (аудит надёжности, фаза 6: раньше все три
+// причины — код не существует, уже использован, истёк — превращались в
+// одно и то же обтекаемое сообщение).
+async function diagnoseFailure(code) {
+  const invite = await prisma.invite.findUnique({ where: { code } });
+  if (!invite) return 'Пригласительная ссылка не найдена — проверьте, что скопировали её полностью.';
+  if (invite.usedAt) return 'Эта пригласительная ссылка уже использована — она одноразовая.';
+  if (invite.expiresAt < new Date()) return 'Срок действия пригласительной ссылки истёк (действует 24 часа). Попросите новую.';
+  return 'Пригласительная ссылка недействительна.';
+}
+
+module.exports = { create, claim, diagnoseFailure };
