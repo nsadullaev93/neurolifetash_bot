@@ -14,6 +14,7 @@ const {
 } = require('../services/forecast.service');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
 const { closeMonth } = require('../services/settlement.service');
+const SettlementModel = require('../models/Settlement');
 const { getPeriodStats } = require('../services/stats.service');
 const { sendDueCheckins } = require('../services/checkin.service');
 const { createBackup } = require('../services/backup.service');
@@ -28,6 +29,7 @@ const {
   isoWeekday,
   formatDateLong,
   monthName,
+  prevMonthOf,
 } = require('../utils/date');
 
 // Денежные рассылки (калькулятор, напоминание об оплате, итог месяца) идут
@@ -38,12 +40,34 @@ async function moneyAudienceUsers() {
   return members.filter((m) => m.canSeeMoney && m.paymentPings).map((m) => m.user);
 }
 
+// Overlap-guard (аудит надёжности, фаза 3): node-cron не мешает новому тику
+// стартовать, пока предыдущий ещё выполняется — при временном подвисании
+// Neon несколько тиков подряд могут наложиться друг на друга, отправляя
+// дублирующиеся сообщения и вычерпывая небольшой пул соединений Prisma.
+// Оборачивает каждую задачу так, чтобы новый тик, пока старый не завершён,
+// тихо пропускался, а не запускался поверх.
+function withOverlapGuard(name, fn) {
+  let running = false;
+  return async () => {
+    if (running) {
+      console.error(`Тик "${name}" пропущен — предыдущий запуск ещё не завершился`);
+      return;
+    }
+    running = true;
+    try {
+      await fn();
+    } finally {
+      running = false;
+    }
+  };
+}
+
 function startReminderJobs(bot) {
   // Every minute: send the "unmarked sessions today" reminder to any user
   // whose personal reminderTime matches the current time in Tashkent.
   cron.schedule(
     '* * * * *',
-    async () => {
+    withOverlapGuard('напоминание о неотмеченных занятиях', async () => {
       try {
         const hm = currentHM();
         const users = await UserModel.listAll();
@@ -65,20 +89,20 @@ function startReminderJobs(bot) {
       } catch (err) {
         console.error('Ошибка ежедневного напоминания:', err.message);
       }
-    },
+    }),
     { timezone: config.timezone },
   );
 
   // Каждую минуту — чат-чекины через 5 минут после конца занятия (ТЗ v2, §7.1).
   cron.schedule(
     '* * * * *',
-    async () => {
+    withOverlapGuard('чат-чекины', async () => {
       try {
         await sendDueCheckins(bot);
       } catch (err) {
         console.error('Ошибка отправки чат-чекинов:', err.message);
       }
-    },
+    }),
     { timezone: config.timezone },
   );
 
@@ -148,17 +172,41 @@ function startReminderJobs(bot) {
     { timezone: config.timezone },
   );
 
-  // Last day of the month, 20:00 — final reconciliation summary.
+  // Последний день месяца, 20:00 — итоговая сверка и закрытие месяца.
+  //
+  // Catch-up (аудит надёжности, фаза 3): closeMonth раньше запускался
+  // только на этом ровно одном тике в году для каждого месяца — сбой Neon
+  // именно в эту минуту навсегда оставлял месяц незакрытым, без переноса
+  // остатка и без уведомления владельца, кроме строки в логах Render. Теперь
+  // на каждом дневном тике, если сегодня не последний день месяца, но для
+  // ПРЕДЫДУЩЕГО месяца ещё нет ни одной записи Settlement — значит, close
+  // ещё не выполнялся (единственное место, создающее Settlement) — и
+  // закрытие повторяется на следующий день автоматически.
   cron.schedule(
     '0 20 * * *',
     async () => {
       try {
         const n = nowTz();
-        if (!isLastDayOfMonth(n.year(), n.month() + 1, n.date())) return;
-
+        const isLastDay = isLastDayOfMonth(n.year(), n.month() + 1, n.date());
         const { year, month } = nowYearMonth();
-        const report = await calculateMonthlyReconciliation(year, month);
-        const { pendingDecisions } = await closeMonth(year, month);
+
+        let targetYear = year;
+        let targetMonth = month;
+        if (!isLastDay) {
+          // Catch-up — только в первые дни месяца, иначе при первом же
+          // деплое этой фичи она попыталась бы задним числом закрыть все
+          // месяцы, для которых Settlement ещё не существовал как модель.
+          if (n.date() > 5) return;
+          const prev = prevMonthOf(year, month);
+          const alreadyClosed = (await SettlementModel.listForMonth(prev.year, prev.month)).length > 0;
+          if (alreadyClosed) return;
+          targetYear = prev.year;
+          targetMonth = prev.month;
+          console.error(`Закрытие месяца ${prev.month}.${prev.year} не выполнилось вовремя — досчитываю сейчас (catch-up)`);
+        }
+
+        const report = await calculateMonthlyReconciliation(targetYear, targetMonth);
+        const { pendingDecisions } = await closeMonth(targetYear, targetMonth);
         const users = await moneyAudienceUsers();
 
         const lines = report.rows.map((r) => {
@@ -167,12 +215,12 @@ function startReminderJobs(bot) {
         });
         const totalEmoji = report.total > 0 ? '🟢' : report.total < 0 ? '🔴' : '⚪';
         let text =
-          `Итоговая сверка за ${monthName(month)} ${year}:\n\n${lines.join('\n')}\n\n` +
+          `Итоговая сверка за ${monthName(targetMonth)} ${targetYear}:\n\n${lines.join('\n')}\n\n` +
           `${totalEmoji} Общий итог: ${formatMoneySigned(report.total)}`;
 
         // «С начала года: состоялось NN% занятий» (ТЗ v2, §2.16).
         try {
-          const yearStats = await getPeriodStats({ year, month: 1 }, { year, month });
+          const yearStats = await getPeriodStats({ year: targetYear, month: 1 }, { year: targetYear, month: targetMonth });
           if (yearStats.total.attendanceRate != null) {
             text += `\n\nС начала года: состоялось ${Math.round(yearStats.total.attendanceRate * 100)}% занятий`;
           }
@@ -187,17 +235,19 @@ function startReminderJobs(bot) {
           [
             Markup.button.callback(
               `${d.trainerName}: оплатил отдельно`,
-              `settlement_paid:${d.trainerId}:${year}:${month}`,
+              `settlement_paid:${d.trainerId}:${targetYear}:${targetMonth}`,
             ),
           ],
           [
             Markup.button.callback(
               `${d.trainerName}: добавить к следующей оплате`,
-              `settlement_carry:${d.trainerId}:${year}:${month}`,
+              `settlement_carry:${d.trainerId}:${targetYear}:${targetMonth}`,
             ),
           ],
         ]);
-        decisionButtons.push([Markup.button.callback('Внести цифры центра', `centerfigures_start:${year}:${month}`)]);
+        decisionButtons.push([
+          Markup.button.callback('Внести цифры центра', `centerfigures_start:${targetYear}:${targetMonth}`),
+        ]);
         const decisionKeyboard = Markup.inlineKeyboard(decisionButtons);
 
         for (const user of users) {

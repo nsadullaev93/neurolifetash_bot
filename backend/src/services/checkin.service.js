@@ -96,12 +96,21 @@ async function updateAllCopies(bot, sessionId, text, keyboard) {
   }
 }
 
-// Кандидаты на отправку: занятия сегодня, заканчивающиеся 5 минут назад,
-// ещё не отмеченные. Вызывается раз в минуту (ТЗ v2, §7.1).
+// Кандидаты на отправку: занятия сегодня, закончившиеся 5+ минут назад,
+// ещё не отмеченные И ещё без отправленного чекина. Вызывается раз в
+// минуту (ТЗ v2, §7.1). Диапазон вместо точного совпадения минуты —
+// переживает пропущенный тик (см. Session.listDueForCheckin); фильтр по
+// existsForSession нужен именно поэтому — иначе занятие, чекин по
+// которому уже разослан, но ещё не отвечен, рассылалось бы повторно
+// на каждом следующем тике.
 async function sendDueCheckins(bot) {
   const targetEndTime = currentHM(5); // "сейчас минус 5 минут"
   const today = todayDateOnly();
-  const sessions = await SessionModel.listDueForCheckin(today, targetEndTime);
+  const candidates = await SessionModel.listDueForCheckin(today, targetEndTime);
+  if (candidates.length === 0) return;
+
+  const alreadySent = await Promise.all(candidates.map((s) => SessionCheckinModel.existsForSession(s.id)));
+  const sessions = candidates.filter((_, i) => !alreadySent[i]);
   if (sessions.length === 0) return;
 
   const members = await FamilyMemberModel.listAll();

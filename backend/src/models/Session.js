@@ -49,9 +49,17 @@ async function countUnmarkedForDate(dateOnlyValue) {
 
 // Занятия сегодняшнего дня, заканчивающиеся в endTime и ещё не отмеченные —
 // кандидаты на чат-чекин через 5 минут после конца (ТЗ v2, §7.1).
-async function listDueForCheckin(dateOnlyValue, endTime) {
+// thresholdEndTime — "HH:MM" ("сейчас минус 5 минут"). Раньше сравнивалось
+// точным совпадением endTime === thresholdEndTime: если ровно этот
+// минутный тик cron не выполнялся (рестарт при деплое, сбой БД), чекин по
+// занятию терялся навсегда — то самое время больше никогда не наступит
+// (аудит надёжности, фаза 3). Диапазон endTime <= threshold — тот же
+// список сегодняшних кандидатов, но переживает пропущенный тик: занятие
+// остаётся "due", пока за него не отправят чекин (фильтрация по уже
+// отправленным — в checkin.service.sendDueCheckins).
+async function listDueForCheckin(dateOnlyValue, thresholdEndTime) {
   return prisma.session.findMany({
-    where: { date: dateOnlyValue, endTime, status: 'PLANNED' },
+    where: { date: dateOnlyValue, endTime: { lte: thresholdEndTime }, status: 'PLANNED' },
     include: includeTrainers,
     orderBy: { startTime: 'asc' },
   });
