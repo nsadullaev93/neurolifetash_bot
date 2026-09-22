@@ -13,6 +13,10 @@ export default function Payments() {
   const [paymentStatus, setPaymentStatus] = useState(null);
   const [forecast, setForecast] = useState(null);
   const [showForecast, setShowForecast] = useState(false);
+  // Калькулятор — отдельный месяц/год от остальной страницы (оплаты/статус
+  // всегда про текущий месяц, а посчитать заранее хочется и на будущие).
+  const [forecastYear, setForecastYear] = useState(year);
+  const [forecastMonth, setForecastMonth] = useState(month);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -43,14 +47,24 @@ export default function Payments() {
     load();
   }, [load]);
 
-  async function loadForecast() {
+  async function loadForecast(y = forecastYear, m = forecastMonth) {
     try {
-      const result = await api.getForecast(year, month);
+      const result = await api.getForecast(y, m);
       setForecast(result);
       setShowForecast(true);
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  function shiftForecastMonth(delta) {
+    let m = forecastMonth + delta;
+    let y = forecastYear;
+    if (m > 12) { m = 1; y += 1; }
+    if (m < 1) { m = 12; y -= 1; }
+    setForecastMonth(m);
+    setForecastYear(y);
+    if (showForecast) loadForecast(y, m);
   }
 
   const selectedTrainer = trainers.find((t) => String(t.id) === String(trainerId));
@@ -117,7 +131,16 @@ export default function Payments() {
 
       {error && <div className="error-box">{error}</div>}
 
-      <button className="btn btn-secondary" onClick={loadForecast}>Рассчитать оплату на месяц</button>
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <button className="btn-sm-inline" onClick={() => shiftForecastMonth(-1)} aria-label="Предыдущий месяц">◀</button>
+          <div style={{ fontWeight: 700 }}>{RU_MONTHS_NOM[forecastMonth - 1]} {forecastYear}</div>
+          <button className="btn-sm-inline" onClick={() => shiftForecastMonth(1)} aria-label="Следующий месяц">▶</button>
+        </div>
+        <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => loadForecast()}>
+          Рассчитать оплату на месяц
+        </button>
+      </div>
 
       {showForecast && forecast && (
         <div className="card" style={{ marginTop: 12 }}>
