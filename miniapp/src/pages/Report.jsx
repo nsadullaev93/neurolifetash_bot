@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import ReportReconciliation from './ReportReconciliation';
-import ReportStats from './ReportStats';
-import ReportDiary from './ReportDiary';
+import { useState, lazy, Suspense } from 'react';
+
+const ReportReconciliation = lazy(() => import('./ReportReconciliation'));
+const ReportStats = lazy(() => import('./ReportStats'));
+const ReportDiary = lazy(() => import('./ReportDiary'));
 
 export default function Report({ canSeeMoney }) {
   const [subtab, setSubtab] = useState(canSeeMoney ? 'reconciliation' : 'stats');
@@ -24,9 +25,11 @@ export default function Report({ canSeeMoney }) {
         </button>
       </div>
 
-      {subtab === 'reconciliation' && canSeeMoney && <ReportReconciliation />}
-      {subtab === 'stats' && <ReportStats canSeeMoney={canSeeMoney} />}
-      {subtab === 'diary' && <ReportDiary />}
+      <Suspense fallback={<div className="center-loading">Загрузка…</div>}>
+        {subtab === 'reconciliation' && canSeeMoney && <ReportReconciliation />}
+        {subtab === 'stats' && <ReportStats canSeeMoney={canSeeMoney} />}
+        {subtab === 'diary' && <ReportDiary />}
+      </Suspense>
     </div>
   );
 }

@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import BottomNav from './components/BottomNav';
 import Today from './pages/Today';
-import Calendar from './pages/Calendar';
-import Payments from './pages/Payments';
-import Report from './pages/Report';
-import More from './pages/More';
 import { api } from './api/client';
+
+const Calendar = lazy(() => import('./pages/Calendar'));
+const Payments = lazy(() => import('./pages/Payments'));
+const Report = lazy(() => import('./pages/Report'));
+const More = lazy(() => import('./pages/More'));
 
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
@@ -41,11 +42,13 @@ export default function App() {
 
   return (
     <div className="app">
-      {tab === 'today' && <Today goToCalendar={() => setTab('calendar')} />}
-      {tab === 'calendar' && <Calendar />}
-      {tab === 'payments' && canSeeMoney && <Payments />}
-      {tab === 'report' && <Report canSeeMoney={canSeeMoney} />}
-      {tab === 'more' && <More me={me} onMeUpdate={(updated) => { setMe(updated); applyTheme(updated.theme); }} />}
+      <Suspense fallback={<div className="screen"><div className="center-loading">Загрузка…</div></div>}>
+        {tab === 'today' && <Today goToCalendar={() => setTab('calendar')} />}
+        {tab === 'calendar' && <Calendar />}
+        {tab === 'payments' && canSeeMoney && <Payments />}
+        {tab === 'report' && <Report canSeeMoney={canSeeMoney} />}
+        {tab === 'more' && <More me={me} onMeUpdate={(updated) => { setMe(updated); applyTheme(updated.theme); }} />}
+      </Suspense>
 
       <BottomNav active={tab} onChange={setTab} canSeeMoney={canSeeMoney} />
     </div>
