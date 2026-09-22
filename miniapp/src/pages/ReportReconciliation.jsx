@@ -135,7 +135,7 @@ export default function ReportReconciliation() {
             {exporting ? 'Экспорт…' : 'Экспорт отчёта (Excel)'}
           </button>
 
-          <div className="section-title">Отправить PDF</div>
+          <div className="section-title">Загрузить отчёт в формате PDF</div>
           <div className="hint-text">
             Печатная версия этой же сверки за месяц — с подробностями по дням и местом для подписи родителя и
             администрации центра. Удобно распечатать или переслать, если нужно показать расчёт центру.
