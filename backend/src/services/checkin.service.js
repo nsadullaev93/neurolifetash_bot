@@ -16,16 +16,25 @@ const REASON_STATUS = {
   none: 'CHILD_ABSENT',
 };
 
+// Токен ревизии — Session.updatedAt на момент показа кнопок, зашитый в
+// callback_data. Если к моменту нажатия он не совпадает с текущим
+// updatedAt в БД — значит, кто-то из семьи уже ответил раньше (гонка
+// между несколькими копиями сообщения), и нажатие нужно не применять
+// молча, а показать, что уже отмечено (см. staleGuard в botController.js).
+function rev(session) {
+  return session.updatedAt.getTime().toString(36);
+}
+
 function questionText(session) {
   const trainer = session.plannedTrainer;
   return `🕓 ${session.startTime}–${session.endTime} · ${trainer.name}\nЗанятие состоялось?`;
 }
 
-function questionKeyboard(sessionId, includeBulkButton) {
+function questionKeyboard(sessionId, includeBulkButton, revToken) {
   const rows = [
-    [Markup.button.callback('✅ Было', `checkin_done:${sessionId}`)],
-    [Markup.button.callback('❌ Не было', `checkin_notdone:${sessionId}`)],
-    [Markup.button.callback('🔄 Провёл другой специалист', `checkin_other:${sessionId}`)],
+    [Markup.button.callback('✅ Было', `checkin_done:${sessionId}:${revToken}`)],
+    [Markup.button.callback('❌ Не было', `checkin_notdone:${sessionId}:${revToken}`)],
+    [Markup.button.callback('🔄 Провёл другой специалист', `checkin_other:${sessionId}:${revToken}`)],
   ];
   if (includeBulkButton) {
     rows.push([Markup.button.callback('🏠 Сегодня не идём', 'checkin_bulk_absent')]);
@@ -56,19 +65,21 @@ function changeKeyboard(sessionId) {
   return Markup.inlineKeyboard([[Markup.button.callback('Изменить', `checkin_change:${sessionId}`)]]);
 }
 
-function reasonKeyboard(sessionId) {
+function reasonKeyboard(sessionId, revToken) {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('Специалист отсутствовал', `checkin_reason:${sessionId}:trainer_absent`)],
-    [Markup.button.callback('Болезнь', `checkin_reason:${sessionId}:sick`)],
-    [Markup.button.callback('Праздник', `checkin_reason:${sessionId}:holiday`)],
-    [Markup.button.callback('Перенос', `checkin_reason:${sessionId}:reschedule`)],
-    [Markup.button.callback('Без причины', `checkin_reason:${sessionId}:none`)],
+    [Markup.button.callback('Специалист отсутствовал', `checkin_reason:${sessionId}:trainer_absent:${revToken}`)],
+    [Markup.button.callback('Болезнь', `checkin_reason:${sessionId}:sick:${revToken}`)],
+    [Markup.button.callback('Праздник', `checkin_reason:${sessionId}:holiday:${revToken}`)],
+    [Markup.button.callback('Перенос', `checkin_reason:${sessionId}:reschedule:${revToken}`)],
+    [Markup.button.callback('Без причины', `checkin_reason:${sessionId}:none:${revToken}`)],
   ]);
 }
 
-async function otherTrainerKeyboard(sessionId) {
+async function otherTrainerKeyboard(sessionId, revToken) {
   const trainers = await TrainerModel.listAll({ onlyActive: true });
-  return Markup.inlineKeyboard(trainers.map((t) => [Markup.button.callback(t.name, `checkin_trainer:${sessionId}:${t.id}`)]));
+  return Markup.inlineKeyboard(
+    trainers.map((t) => [Markup.button.callback(t.name, `checkin_trainer:${sessionId}:${t.id}:${revToken}`)]),
+  );
 }
 
 // Редактирует ВСЕ разосланные копии сообщения по этому занятию (у каждого
@@ -101,7 +112,7 @@ async function sendDueCheckins(bot) {
 
   for (const session of sessions) {
     const text = questionText(session);
-    const keyboard = questionKeyboard(session.id, isFirstOfDay);
+    const keyboard = questionKeyboard(session.id, isFirstOfDay, rev(session));
 
     for (const member of recipients) {
       try {
@@ -117,6 +128,7 @@ async function sendDueCheckins(bot) {
 
 module.exports = {
   REASON_STATUS,
+  rev,
   questionText,
   questionKeyboard,
   resultText,

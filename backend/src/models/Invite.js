@@ -12,14 +12,23 @@ async function create(createdById) {
   });
 }
 
-async function findValidByCode(code) {
-  const invite = await prisma.invite.findUnique({ where: { code } });
-  if (!invite || invite.usedAt || invite.expiresAt < new Date()) return null;
-  return invite;
+// Атомарно "занимает" приглашение одним UPDATE с условием в WHERE —
+// вместо раздельных findValidByCode + markUsed (аудит надёжности, фаза 1).
+// Раздельные вызовы оставляли окно гонки: между чтением и пометкой
+// "использовано" код успевала обработать другая async-работа (создание
+// пользователя/участника), и два человека, открывшие одну ссылку почти
+// одновременно, оба проходили проверку валидности и оба присоединялись к
+// семье по одному приглашению. Один SQL UPDATE с usedAt/expiresAt в WHERE
+// атомарен на уровне строки в Postgres — вторая попытка гарантированно
+// увидит usedAt уже выставленным и обновит 0 строк.
+async function claim(code) {
+  const now = new Date();
+  const result = await prisma.invite.updateMany({
+    where: { code, usedAt: null, expiresAt: { gt: now } },
+    data: { usedAt: now },
+  });
+  if (result.count === 0) return null;
+  return prisma.invite.findUnique({ where: { code } });
 }
 
-async function markUsed(id) {
-  return prisma.invite.update({ where: { id }, data: { usedAt: new Date() } });
-}
-
-module.exports = { create, findValidByCode, markUsed };
+module.exports = { create, claim };

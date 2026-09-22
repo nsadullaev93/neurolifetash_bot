@@ -20,22 +20,45 @@ async function listAll() {
 
 // Гарантирует, что у одобренного пользователя есть запись FamilyMember —
 // вызывается из resolveAccess при каждом переходе в статус 'approved'
-// (ТЗ v2, §2.14). Идемпотентно: уже существующую запись не трогает.
-// Владелец (OWNER_TELEGRAM_ID) получает роль OWNER и видимость денег сразу;
-// остальные — MEMBER без доступа к деньгам по умолчанию.
+// (ТЗ v2, §2.14). Владелец (OWNER_TELEGRAM_ID) получает роль OWNER и
+// видимость денег сразу; остальные — MEMBER без доступа к деньгам по умолчанию.
+//
+// Самоисцеление роли (аудит надёжности, фаза 2): если существующая запись
+// уже есть, role всё равно сверяется с ТЕКУЩИМ OWNER_TELEGRAM_ID при каждом
+// вызове, а не только один раз при создании. Без этого смена переменной на
+// Render (передача роли другому человеку) оставляла бы старого владельца
+// с правами на приглашения/сверку с центром (isOwnerRole) навсегда — они
+// нигде больше не пересчитывались, в отличие от isOwner(), который читает
+// env var заново при каждой проверке. canSeeMoney при понижении роли не
+// трогаем — это отдельный переключатель, им управляют явно.
 async function ensureForUser(user) {
   const existing = await findByUserId(user.id);
-  if (existing) return existing;
+  const shouldBeOwner = isOwnerTelegramId(user.telegramId);
+
+  if (existing) {
+    if (shouldBeOwner && existing.role !== 'OWNER') {
+      return prisma.familyMember.update({
+        where: { id: existing.id },
+        data: { role: 'OWNER', canSeeMoney: true },
+      });
+    }
+    if (!shouldBeOwner && existing.role === 'OWNER') {
+      return prisma.familyMember.update({
+        where: { id: existing.id },
+        data: { role: 'MEMBER' },
+      });
+    }
+    return existing;
+  }
 
   const familyId = await getFamilyId();
-  const owner = isOwnerTelegramId(user.telegramId);
   return prisma.familyMember.create({
     data: {
       familyId,
       userId: user.id,
-      role: owner ? 'OWNER' : 'MEMBER',
+      role: shouldBeOwner ? 'OWNER' : 'MEMBER',
       displayName: user.firstName || 'Участник',
-      canSeeMoney: owner,
+      canSeeMoney: shouldBeOwner,
     },
   });
 }

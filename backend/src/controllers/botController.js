@@ -64,9 +64,12 @@ function setupBot(bot) {
   bot.start(async (ctx) => {
     // Вступление по пригласительной ссылке (ТЗ v2, §2.14): t.me/<бот>?start=inv_<код>.
     // Минует очередь запроса доступа — код сам по себе является приглашением.
+    // claim() занимает код одним атомарным UPDATE ДО какой-либо другой
+    // асинхронной работы (аудит надёжности, фаза 1) — так что второй человек,
+    // открывший ту же ссылку почти одновременно, гарантированно получает null.
     const payload = ctx.startPayload || '';
     if (payload.startsWith('inv_')) {
-      const invite = await InviteModel.findValidByCode(payload.slice(4));
+      const invite = await InviteModel.claim(payload.slice(4));
       if (invite) {
         const user = await UserModel.upsertFromTelegram(ctx.from);
         if (user.accessStatus !== 'APPROVED') {
@@ -76,7 +79,6 @@ function setupBot(bot) {
         if (!existingMember) {
           await FamilyMemberModel.createFromInvite(user, invite);
         }
-        await InviteModel.markUsed(invite.id);
         await ctx.reply('Добро пожаловать в семью! Нажмите кнопку, чтобы открыть журнал занятий.', webAppKeyboard());
         return;
       }
@@ -754,13 +756,34 @@ function setupBot(bot) {
   // checkin.service.sendDueCheckins (см. reminders.job.js); эти обработчики
   // реагируют на нажатия и обновляют ВСЕ разосланные копии сразу — у
   // каждого получателя своя, а данные общие.
-  bot.action(/^checkin_done:(\d+)$/, async (ctx) => {
+  //
+  // Гонка состояний (аудит надёжности, фаза 1): если два участника семьи
+  // отвечают на один и тот же чекин почти одновременно, второй ответ раньше
+  // молча затирал первый. Каждая кнопка несёт токен ревизии — updatedAt
+  // занятия на момент показа кнопок (checkin.rev). Если к моменту нажатия
+  // occupation в БД уже другой updatedAt — значит, кто-то уже ответил
+  // первым; вместо тихой перезаписи показываем, что уже отмечено, и
+  // обновляем только копию нажавшего до актуального состояния.
+  async function staleCheckinGuard(ctx, sessionId, current, revToken) {
+    if (checkin.rev(current) === revToken) return false;
+    const actor = current.markedByUserId ? await FamilyMemberModel.findByUserId(current.markedByUserId) : null;
+    await ctx.answerCbQuery('Уже отмечено другим участником семьи', { show_alert: true });
+    try {
+      await ctx.editMessageText(checkin.resultText(current, actor?.displayName), checkin.changeKeyboard(sessionId));
+    } catch (err) {
+      console.error('Не удалось обновить устаревшую копию чекина:', err.message);
+    }
+    return true;
+  }
+
+  bot.action(/^checkin_done:(\d+):(\w+)$/, async (ctx) => {
     const { status, user } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
 
     const sessionId = Number(ctx.match[1]);
     const existing = await SessionModel.findById(sessionId);
     if (!existing) return ctx.answerCbQuery('Занятие не найдено', { show_alert: true });
+    if (await staleCheckinGuard(ctx, sessionId, existing, ctx.match[2])) return;
 
     const updated = await SessionModel.update(sessionId, {
       status: 'COMPLETED',
@@ -779,13 +802,14 @@ function setupBot(bot) {
     );
   });
 
-  bot.action(/^checkin_notdone:(\d+)$/, async (ctx) => {
+  bot.action(/^checkin_notdone:(\d+):(\w+)$/, async (ctx) => {
     const { status, user } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
 
     const sessionId = Number(ctx.match[1]);
     const existing = await SessionModel.findById(sessionId);
     if (!existing) return ctx.answerCbQuery('Занятие не найдено', { show_alert: true });
+    if (await staleCheckinGuard(ctx, sessionId, existing, ctx.match[2])) return;
 
     // Пропуск отмечается сразу (деньги не зависят от причины) — причина
     // ниже только уточняет статус для отчёта, если её вообще укажут.
@@ -802,11 +826,11 @@ function setupBot(bot) {
       bot,
       sessionId,
       `${checkin.resultText(updated, member?.displayName)}\n\nУточнить причину? (необязательно)`,
-      checkin.reasonKeyboard(sessionId),
+      checkin.reasonKeyboard(sessionId, checkin.rev(updated)),
     );
   });
 
-  bot.action(/^checkin_reason:(\d+):(\w+)$/, async (ctx) => {
+  bot.action(/^checkin_reason:(\d+):(\w+):(\w+)$/, async (ctx) => {
     const { status, user } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
 
@@ -816,6 +840,7 @@ function setupBot(bot) {
 
     const existing = await SessionModel.findById(sessionId);
     if (!existing) return ctx.answerCbQuery('Занятие не найдено', { show_alert: true });
+    if (await staleCheckinGuard(ctx, sessionId, existing, ctx.match[3])) return;
 
     const updated = await SessionModel.update(sessionId, {
       status: newStatus,
@@ -836,13 +861,17 @@ function setupBot(bot) {
 
   // Список специалистов для подмены показывается только в копии того, кто
   // нажал — промежуточное состояние; сама подмена ниже уже обновляет все копии.
-  bot.action(/^checkin_other:(\d+)$/, async (ctx) => {
+  bot.action(/^checkin_other:(\d+):(\w+)$/, async (ctx) => {
     const { status } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
-    await ctx.answerCbQuery();
 
     const sessionId = Number(ctx.match[1]);
-    const keyboard = await checkin.otherTrainerKeyboard(sessionId);
+    const existing = await SessionModel.findById(sessionId);
+    if (!existing) return ctx.answerCbQuery('Занятие не найдено', { show_alert: true });
+    if (await staleCheckinGuard(ctx, sessionId, existing, ctx.match[2])) return;
+    await ctx.answerCbQuery();
+
+    const keyboard = await checkin.otherTrainerKeyboard(sessionId, ctx.match[2]);
     try {
       await ctx.editMessageReplyMarkup(keyboard.reply_markup);
     } catch (err) {
@@ -850,7 +879,7 @@ function setupBot(bot) {
     }
   });
 
-  bot.action(/^checkin_trainer:(\d+):(\d+)$/, async (ctx) => {
+  bot.action(/^checkin_trainer:(\d+):(\d+):(\w+)$/, async (ctx) => {
     const { status, user } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
 
@@ -858,6 +887,7 @@ function setupBot(bot) {
     const trainerId = Number(ctx.match[2]);
     const existing = await SessionModel.findById(sessionId);
     if (!existing) return ctx.answerCbQuery('Занятие не найдено', { show_alert: true });
+    if (await staleCheckinGuard(ctx, sessionId, existing, ctx.match[3])) return;
 
     const updated = await SessionModel.update(sessionId, {
       status: 'COMPLETED',
@@ -879,7 +909,9 @@ function setupBot(bot) {
 
   // «Изменить» остаётся под сообщением до конца дня (ТЗ v2, §7.1) —
   // возвращает ВСЕ копии к исходному вопросу; текущая отметка не
-  // сбрасывается сама по себе, пока не выбрали новый ответ.
+  // сбрасывается сама по себе, пока не выбрали новый ответ. Не пишет в
+  // Session, поэтому не нуждается в проверке ревизии — это не гонка, а
+  // сознательное переоткрытие вопроса тем, кто его нажал.
   bot.action(/^checkin_change:(\d+)$/, async (ctx) => {
     const { status } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
@@ -889,7 +921,12 @@ function setupBot(bot) {
     const session = await SessionModel.findById(sessionId);
     if (!session) return;
 
-    await checkin.updateAllCopies(bot, sessionId, checkin.questionText(session), checkin.questionKeyboard(sessionId, false));
+    await checkin.updateAllCopies(
+      bot,
+      sessionId,
+      checkin.questionText(session),
+      checkin.questionKeyboard(sessionId, false, checkin.rev(session)),
+    );
   });
 
   // «Сегодня не идём» — из первого сообщения дня, отмечает одним нажатием
