@@ -7,6 +7,8 @@
   --gray-bg: #f3f4f6;
   --yellow: #b45309;
   --yellow-bg: #fffbeb;
+  --purple: #7c3aed;
+  --purple-bg: #f3e8ff;
   --blue: #2563eb;
   --border: #e5e7eb;
   --text: #111827;
@@ -27,6 +29,8 @@
   --gray-bg: #1f2937;
   --yellow: #fbbf24;
   --yellow-bg: #3f2d05;
+  --purple: #a78bfa;
+  --purple-bg: #2e1f4d;
   --blue: #60a5fa;
   --border: #27303f;
   --text: #f3f4f6;
@@ -457,28 +461,31 @@ button, input, select {
 .calendar-day.day-red { background: var(--red-bg); color: var(--red); }
 .calendar-day.day-yellow { background: var(--yellow-bg); color: var(--yellow); }
 .calendar-day.day-gray { background: var(--gray-bg); color: var(--gray); }
+.calendar-day.day-purple { background: var(--purple-bg); color: var(--purple); }
 .calendar-day.day-white { background: var(--card-bg); color: var(--text); border: 1px solid var(--border); }
 .calendar-day.selected { outline: 2px solid var(--blue); outline-offset: 2px; }
 
 .legend {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 10px;
   margin-top: 14px;
-  font-size: 12px;
-  color: var(--text-muted);
 }
 
 .legend-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .legend-dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 3px;
+  flex-shrink: 0;
 }
 
 .btn {

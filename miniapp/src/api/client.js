@@ -43,6 +43,7 @@ export const api = {
   updateSession: (id, data) => request(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   createMakeup: (id, data) => request(`/sessions/${id}/makeup`, { method: 'POST', body: JSON.stringify(data) }),
   getTrainers: () => request('/trainers'),
+  getHolidays: () => request('/holidays'),
   getPayments: (year, month) => request(`/payments?year=${year}&month=${month}`),
   getPaymentsHistory: () => request('/payments/history'),
   createPayment: (data) => request('/payments', { method: 'POST', body: JSON.stringify(data) }),

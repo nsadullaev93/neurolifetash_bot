@@ -5,9 +5,9 @@ import { RU_MONTHS_NOM, RU_WEEKDAYS_SHORT, isoWeekday, dateKey } from '../utils/
 
 const MISSED_STATUSES = ['TRAINER_ABSENT', 'CHILD_SICK_CERT', 'CHILD_SICK_NO_CERT', 'CHILD_ABSENT', 'RESCHEDULED'];
 
-function dayColor(sessions, key, todayKey) {
-  if (sessions.length === 0) return 'gray';
-  if (sessions.every((s) => s.status === 'CLOSED_DAY')) return 'gray';
+function dayColor(sessions, key, todayKey, isClosedHoliday) {
+  if (sessions.length === 0) return isClosedHoliday ? 'purple' : 'gray';
+  if (sessions.every((s) => s.status === 'CLOSED_DAY')) return isClosedHoliday ? 'purple' : 'gray';
 
   const relevant = sessions.filter((s) => s.status !== 'CLOSED_DAY');
   const hasPlanned = relevant.some((s) => s.status === 'PLANNED');
@@ -25,6 +25,7 @@ export default function Calendar() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [sessions, setSessions] = useState([]);
   const [trainers, setTrainers] = useState([]);
+  const [closedHolidayKeys, setClosedHolidayKeys] = useState(new Set());
   const [todayKey, setTodayKey] = useState('');
   const [selectedDay, setSelectedDay] = useState(null);
   const [error, setError] = useState('');
@@ -33,14 +34,18 @@ export default function Calendar() {
   const load = useCallback(async () => {
     try {
       setError('');
-      const [monthData, trainersList, todayData] = await Promise.all([
+      const [monthData, trainersList, todayData, holidays] = await Promise.all([
         api.getMonthSessions(year, month),
         api.getTrainers(),
         api.getToday(),
+        api.getHolidays(),
       ]);
       setSessions(monthData.sessions);
       setTrainers(trainersList);
       setTodayKey(todayData.date.slice(0, 10));
+      // Праздник в календаре — только подтверждённый закрытым (§2.13): пока
+      // статус ещё UNKNOWN/OPEN, день красится как обычный рабочий/будущий.
+      setClosedHolidayKeys(new Set(holidays.filter((h) => h.status === 'CLOSED').map((h) => h.date.slice(0, 10))));
     } catch (err) {
       setError(err.message);
     }
@@ -115,7 +120,7 @@ export default function Calendar() {
           if (d === null) return <div key={`e${idx}`} className="calendar-day empty" />;
           const key = dateKey(year, month, d);
           const daySessions = sessionsByDay[key] || [];
-          const color = dayColor(daySessions, key, todayKey);
+          const color = dayColor(daySessions, key, todayKey, closedHolidayKeys.has(key));
           return (
             <button
               key={key}
@@ -133,6 +138,7 @@ export default function Calendar() {
         <div className="legend-item"><span className="legend-dot" style={{ background: 'var(--red)' }} /> Есть пропуски</div>
         <div className="legend-item"><span className="legend-dot" style={{ background: 'var(--yellow)' }} /> Не отмечено</div>
         <div className="legend-item"><span className="legend-dot" style={{ background: 'var(--gray)' }} /> Выходной / закрыто</div>
+        <div className="legend-item"><span className="legend-dot" style={{ background: 'var(--purple)' }} /> Праздник</div>
         <div className="legend-item"><span className="legend-dot" style={{ background: '#fff', border: '1px solid var(--border)' }} /> Будущее</div>
       </div>
 
