@@ -125,8 +125,8 @@ export default function Payments() {
 
   function onPaidSessionsChange(value) {
     setPaidSessions(value);
-    const eligible = Number(value) > DISCOUNT_THRESHOLD;
-    const nextDiscount = eligible && discountApplied;
+    const eligible = Number(value) >= DISCOUNT_THRESHOLD;
+    const nextDiscount = eligible ? discountApplied : false;
     if (nextDiscount !== discountApplied) setDiscountApplied(nextDiscount);
     recomputeTotal(value, nextDiscount);
   }
@@ -273,11 +273,11 @@ export default function Payments() {
           />
         </div>
 
-        {Number(paidSessions) > DISCOUNT_THRESHOLD && (
+        {Number(paidSessions) >= DISCOUNT_THRESHOLD && (
           <div className="form-group">
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400 }}>
               <input type="checkbox" checked={discountApplied} onChange={(e) => toggleDiscount(e.target.checked)} />
-              Скидка 10% (более {DISCOUNT_THRESHOLD} занятий — по усмотрению центра)
+              Скидка 10% (от {DISCOUNT_THRESHOLD} занятий — по усмотрению центра)
             </label>
           </div>
         )}

@@ -45,8 +45,8 @@ export default function Payments() {
 
   function onPaidSessionsChange(value) {
     setPaidSessions(value);
-    const eligible = Number(value) > DISCOUNT_THRESHOLD;
-    const nextDiscount = eligible && discountApplied;
+    const eligible = Number(value) >= DISCOUNT_THRESHOLD;
+    const nextDiscount = eligible ? discountApplied : false;
     if (nextDiscount !== discountApplied) setDiscountApplied(nextDiscount);
     recomputeTotal(value, nextDiscount);
   }
@@ -126,11 +126,11 @@ export default function Payments() {
               <label>Заметка</label>
               <input value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
-            {Number(paidSessions) > DISCOUNT_THRESHOLD && (
+            {Number(paidSessions) >= DISCOUNT_THRESHOLD && (
               <div className="field">
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <input type="checkbox" checked={discountApplied} onChange={(e) => toggleDiscount(e.target.checked)} />
-                  Скидка 10% (&gt;{DISCOUNT_THRESHOLD} занятий)
+                  Скидка 10% (от {DISCOUNT_THRESHOLD} занятий)
                 </label>
               </div>
             )}

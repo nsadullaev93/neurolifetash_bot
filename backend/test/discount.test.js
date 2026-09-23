@@ -2,9 +2,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { canApplyDiscount, rateWithDiscount } = require('../src/utils/discount');
 
-test('скидка доступна только строго больше 20 оплаченных занятий в месяц', () => {
+test('скидка доступна от 20 оплаченных занятий в месяц включительно', () => {
   assert.equal(canApplyDiscount(0), false);
-  assert.equal(canApplyDiscount(20), false);
+  assert.equal(canApplyDiscount(19), false);
+  assert.equal(canApplyDiscount(20), true);
   assert.equal(canApplyDiscount(21), true);
 });
 

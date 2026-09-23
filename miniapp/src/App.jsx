@@ -36,10 +36,41 @@ function useOnlineStatus() {
   return online;
 }
 
+// Telegram WebView (особенно iOS) иногда продолжает показывать старый
+// JS-бандл даже после нового деплоя и полного перезапуска мини-аппа —
+// открывается через постоянную Menu Button с одним и тем же URL без
+// параметров, поэтому обычные HTTP-заголовки кэша (Cache-Control:
+// must-revalidate уже стоит на index.html) WebView иногда игнорирует.
+// Сверяем при каждом запуске, какой бандл сейчас реально отдаёт сервер
+// (запрос с cache: 'no-store', в обход любого локального кэша), и если он
+// отличается от уже загруженного — жёстко перезагружаем страницу с новым
+// query-параметром, чтобы гарантированно получить свежую копию.
+function useVersionCheck() {
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(window.location.pathname, { cache: 'no-store' });
+        const html = await res.text();
+        const match = html.match(/assets\/index-[\w-]+\.js/);
+        const currentScript = document.querySelector('script[src*="/assets/index-"]');
+        const currentSrc = currentScript?.getAttribute('src') || '';
+        if (match && currentScript && !currentSrc.includes(match[0].split('/').pop())) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('_r', Date.now().toString());
+          window.location.replace(url.toString());
+        }
+      } catch {
+        /* нет сети — не мешаем работе, проверим при следующем запуске */
+      }
+    })();
+  }, []);
+}
+
 export default function App() {
   const [tab, setTab] = useState('today');
   const [me, setMe] = useState(null);
   const online = useOnlineStatus();
+  useVersionCheck();
 
   const loadMe = useCallback(async () => {
     try {

@@ -56,7 +56,7 @@ async function create(req, res, next) {
     const wantsDiscount = !!discountApplied;
     if (wantsDiscount && !canApplyDiscount(paidSessions)) {
       return res.status(400).json({
-        error: `Скидка доступна только при оплате более ${config.discountThresholdSessions} занятий в месяц`,
+        error: `Скидка доступна только при оплате от ${config.discountThresholdSessions} занятий в месяц`,
       });
     }
 
@@ -103,7 +103,7 @@ async function update(req, res, next) {
       const effectivePaidSessions = paidSessions !== undefined ? paidSessions : existing.paidSessions;
       if (discountApplied && !canApplyDiscount(effectivePaidSessions)) {
         return res.status(400).json({
-          error: `Скидка доступна только при оплате более ${config.discountThresholdSessions} занятий в месяц`,
+          error: `Скидка доступна только при оплате от ${config.discountThresholdSessions} занятий в месяц`,
         });
       }
       const trainer = await TrainerModel.findById(existing.trainerId);

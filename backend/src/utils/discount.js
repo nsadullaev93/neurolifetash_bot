@@ -2,12 +2,12 @@
 
 const config = require('../config/default');
 
-// Скидка 10% при оплате больше config.discountThresholdSessions занятий в
-// месяц — доступна по превышению порога, но применяется по усмотрению
-// администрации центра (не авто-правило): при одинаковом количестве занятий
-// в разные месяцы может быть применена или нет.
+// Скидка 10% при оплате от config.discountThresholdSessions занятий в
+// месяц (включительно) — доступна по достижению порога, но применяется по
+// усмотрению администрации центра (не авто-правило): при одинаковом
+// количестве занятий в разные месяцы может быть применена или нет.
 function canApplyDiscount(paidSessions) {
-  return paidSessions > config.discountThresholdSessions;
+  return paidSessions >= config.discountThresholdSessions;
 }
 
 function rateWithDiscount(baseRate, discountApplied) {
