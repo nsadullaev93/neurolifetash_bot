@@ -7,6 +7,7 @@ const {
 const { buildMonthlyReportPdf } = require('../services/pdfReport.service');
 const { getChildName } = require('../utils/scope');
 const { LANGS } = require('../i18n/report');
+const bot = require('../core/bot');
 
 function parseYearMonth(req, res) {
   const year = parseInt(req.query.year, 10);
@@ -68,6 +69,13 @@ async function exportMonthly(req, res, next) {
   }
 }
 
+// Раньше отдавался как HTTP-вложение (Content-Disposition: attachment) для
+// скачивания браузером внутри Mini App — ненадёжно в WebView Telegram
+// (особенно iOS): синтетический клик по <a download> с blob-URL там часто
+// просто открывает предпросмотр без реальной возможности сохранить файл.
+// Вместо этого отправляем PDF документом прямо в чат тем же способом, что
+// уже надёжно работает для команды /report в боте (ctx.replyWithDocument) —
+// у документа в чате есть штатное меню "Сохранить"/"Поделиться" Telegram.
 async function exportMonthlyPdf(req, res, next) {
   try {
     const ym = parseYearMonth(req, res);
@@ -75,12 +83,9 @@ async function exportMonthlyPdf(req, res, next) {
     const lang = LANGS.includes(req.query.lang) ? req.query.lang : 'ru';
     const childName = await getChildName();
     const buffer = await buildMonthlyReportPdf(ym.year, ym.month, lang, childName);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="sverka_${ym.year}-${String(ym.month).padStart(2, '0')}_${lang}.pdf"`,
-    );
-    res.send(buffer);
+    const filename = `sverka_${ym.year}-${String(ym.month).padStart(2, '0')}_${lang}.pdf`;
+    await bot.telegram.sendDocument(Number(req.user.telegramId), { source: buffer, filename });
+    res.json({ sent: true });
   } catch (err) {
     next(err);
   }

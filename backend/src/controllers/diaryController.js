@@ -4,6 +4,7 @@ const { dateOnly } = require('../utils/date');
 const { buildDiaryPdf } = require('../services/pdfDiary.service');
 const { getChildName } = require('../utils/scope');
 const { LANGS } = require('../i18n/report');
+const bot = require('../core/bot');
 
 function serializeNote(note) {
   return {
@@ -105,6 +106,9 @@ async function listPeriod(req, res, next) {
   }
 }
 
+// См. комментарий у reportController.exportMonthlyPdf — тот же переход с
+// HTTP-скачивания (ненадёжного в WebView Telegram) на отправку документа
+// ботом прямо в чат.
 async function exportPdf(req, res, next) {
   try {
     const { from, to } = req.query;
@@ -115,10 +119,9 @@ async function exportPdf(req, res, next) {
     const [ty, tm, td] = to.split('-').map(Number);
     const childName = await getChildName();
     const buffer = await buildDiaryPdf(dateOnly(fy, fm, fd), dateOnly(ty, tm, td), lang, childName);
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="diary_${from}_${to}_${lang}.pdf"`);
-    res.send(buffer);
+    const filename = `diary_${from}_${to}_${lang}.pdf`;
+    await bot.telegram.sendDocument(Number(req.user.telegramId), { source: buffer, filename });
+    res.json({ sent: true });
   } catch (err) {
     next(err);
   }

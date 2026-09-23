@@ -73,8 +73,10 @@ export const api = {
   getHolidays: () => request('/holidays'),
   setHolidayStatus: (id, status) => request(`/holidays/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 
-  exportReportPdfBlob: (year, month, lang) => request(`/reports/monthly/export-pdf?year=${year}&month=${month}&lang=${lang}`),
-  exportDiaryPdfBlob: (from, to, lang) => request(`/diary/export-pdf?from=${from}&to=${to}&lang=${lang}`),
+  // Бэкенд отправляет PDF документом в чат (бот) и отвечает {sent: true} —
+  // не blob для скачивания браузером (ненадёжно в WebView Telegram).
+  sendReportPdf: (year, month, lang) => request(`/reports/monthly/export-pdf?year=${year}&month=${month}&lang=${lang}`),
+  sendDiaryPdf: (from, to, lang) => request(`/diary/export-pdf?from=${from}&to=${to}&lang=${lang}`),
 };
 
 export { API_URL, getInitData };

@@ -12,6 +12,7 @@ export default function ReportReconciliation() {
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState('');
+  const [pdfSent, setPdfSent] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -51,9 +52,11 @@ export default function ReportReconciliation() {
 
   async function exportPdf(lang) {
     setExportingPdf(lang);
+    setPdfSent(false);
+    setError('');
     try {
-      const blob = await api.exportReportPdfBlob(year, month, lang);
-      downloadBlob(blob, `sverka_${year}-${String(month).padStart(2, '0')}_${lang}.pdf`);
+      await api.sendReportPdf(year, month, lang);
+      setPdfSent(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -138,8 +141,15 @@ export default function ReportReconciliation() {
           <div className="section-title">Загрузить отчёт в формате PDF</div>
           <div className="hint-text">
             Печатная версия этой же сверки за месяц — с подробностями по дням и местом для подписи родителя и
-            администрации центра. Удобно распечатать или переслать, если нужно показать расчёт центру.
+            администрации центра. Удобно распечатать или переслать, если нужно показать расчёт центру. Файл
+            пришлёт бот отдельным сообщением в этот чат — так его можно сохранить или переслать штатными
+            средствами Telegram.
           </div>
+          {pdfSent && (
+            <div className="warning-box" style={{ background: 'var(--green-bg)', color: 'var(--green)' }}>
+              Готово — PDF отправлен ботом в чат выше.
+            </div>
+          )}
           <div className="lang-row">
             <button className="btn btn-outline" onClick={() => exportPdf('ru')} disabled={!!exportingPdf}>
               {exportingPdf === 'ru' ? '…' : '🇷🇺 Русский'}

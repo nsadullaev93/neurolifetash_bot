@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '../api/client';
 import { RU_MONTHS_NOM, formatDateRu } from '../utils/format';
-import { downloadBlob } from '../utils/download';
 
 const now = new Date();
 
@@ -18,6 +17,7 @@ export default function ReportDiary() {
   const [notes, setNotes] = useState([]);
   const [error, setError] = useState('');
   const [exportingPdf, setExportingPdf] = useState('');
+  const [pdfSent, setPdfSent] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -46,10 +46,12 @@ export default function ReportDiary() {
 
   async function exportPdf(lang) {
     setExportingPdf(lang);
+    setPdfSent(false);
+    setError('');
     try {
       const { from, to } = monthRange(year, month);
-      const blob = await api.exportDiaryPdfBlob(from, to, lang);
-      downloadBlob(blob, `diary_${from}_${to}_${lang}.pdf`);
+      await api.sendDiaryPdf(from, to, lang);
+      setPdfSent(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -81,6 +83,12 @@ export default function ReportDiary() {
       </div>
 
       <div className="section-title">Выгрузить дневник в PDF</div>
+      <div className="hint-text">Файл пришлёт бот отдельным сообщением в этот чат.</div>
+      {pdfSent && (
+        <div className="warning-box" style={{ background: 'var(--green-bg)', color: 'var(--green)' }}>
+          Готово — PDF отправлен ботом в чат выше.
+        </div>
+      )}
       <div className="lang-row">
         <button className="btn btn-outline" onClick={() => exportPdf('ru')} disabled={!!exportingPdf}>
           {exportingPdf === 'ru' ? '…' : '🇷🇺 Русский'}
