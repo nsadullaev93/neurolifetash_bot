@@ -4,7 +4,30 @@ const { getMonthlyReport } = require('./report.service');
 const SessionModel = require('../models/Session');
 const { t, monthYearLabel, formatDateFor } = require('../i18n/report');
 const { formatDateShort } = require('../utils/date');
-const { createPdfDoc, text, ensureSpace, formatSum, formatSumSigned, MARGIN, PAGE_BOTTOM } = require('./pdfBase');
+const {
+  createPdfDoc,
+  text,
+  ensureSpace,
+  measureHeight,
+  formatSum,
+  formatSumSigned,
+  MARGIN,
+  PAGE_BOTTOM,
+} = require('./pdfBase');
+
+const CELL_PAD = 8; // отступ сверху+снизу внутри строки таблицы
+
+// Высота строки = высота самой "высокой" (перенёсшейся на несколько строк)
+// ячейки + отступ, но не меньше минимума для однострочной строки при данном
+// кегле — иначе короткие строки визуально слипаются без воздуха.
+function rowHeightFor(doc, cells, widths, fontSize, minH) {
+  let max = minH;
+  cells.forEach((val, i) => {
+    const h = measureHeight(doc, val, widths[i] - 8, fontSize) + CELL_PAD;
+    if (h > max) max = h;
+  });
+  return max;
+}
 
 async function buildMonthlyReportPdf(year, month, lang, childName) {
   const L = t(lang);
@@ -27,37 +50,45 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
   }
   y += 10;
 
-  // 2. Сводная таблица по специалистам
+  // 2. Сводная таблица по специалистам. Ширины колонок подобраны так, чтобы
+  // типичные значения (даже на самом длинном из трёх языков) помещались в
+  // одну строку без переноса, но точная подгонка под все локали ненадёжна —
+  // поэтому высота строки всё равно считается динамически (rowHeightFor),
+  // а не фиксирована: если где-то всё же перенесётся на 2 строки, следующая
+  // строка таблицы больше не наедет на неё сверху (раньше высота строки
+  // была жёстко зашита в 20pt, и любой перенос текста — например,
+  // "Начальный" в узкой колонке "Уровень" — наезжал на следующую строку).
   const cols = [
-    { key: 'trainer', label: L.trainer, w: 0.13 },
-    { key: 'level', label: L.level, w: 0.11 },
-    { key: 'rate', label: L.rate, w: 0.14 },
-    { key: 'paid', label: L.paid, w: 0.09 },
-    { key: 'conducted', label: L.conducted, w: 0.1 },
-    { key: 'center', label: L.centerConducted, w: 0.14 },
-    { key: 'notConducted', label: L.notConducted, w: 0.1 },
-    { key: 'balance', label: L.balance, w: 0.2 },
+    { key: 'trainer', label: L.trainer, w: 0.14 },
+    { key: 'level', label: L.level, w: 0.13 },
+    { key: 'rate', label: L.rate, w: 0.13 },
+    { key: 'paid', label: L.paid, w: 0.08 },
+    { key: 'conducted', label: L.conducted, w: 0.09 },
+    { key: 'center', label: L.centerConducted, w: 0.13 },
+    { key: 'notConducted', label: L.notConducted, w: 0.09 },
+    { key: 'balance', label: L.balance, w: 0.21 },
   ].map((c) => ({ ...c, w: c.w * pageWidth }));
+  const colWidths = cols.map((c) => c.w);
 
-  const rowH = 20;
-  const headerRowH = 34; // некоторые заголовки (узбекские) переносятся на 2-3 строки
-  const drawTableHeader = () => {
+  const rowH = 20; // минимальная высота однострочной строки
+  // Чистая функция от startY, а не замыкание над внешним y — иначе при
+  // переносе на новую страницу (см. ensureSpace(..., drawTableHeader) ниже)
+  // шапка нарисовалась бы на позиции СТАРОЙ страницы вместо верха новой.
+  const drawTableHeaderAt = (startY) => {
+    const labels = cols.map((c) => c.label);
+    const headerH = rowHeightFor(doc, labels, colWidths, 7, 24);
+    doc.rect(MARGIN, startY, pageWidth, headerH).fill('#F3F4F6');
     let x = MARGIN;
-    doc.rect(MARGIN, y, pageWidth, headerRowH).fill('#F3F4F6');
     for (const c of cols) {
-      text(doc, c.label, x + 4, y + 5, { size: 7, bold: true, width: c.w - 8 });
+      text(doc, c.label, x + 4, startY + 5, { size: 7, bold: true, width: c.w - 8 });
       x += c.w;
     }
-    y += headerRowH;
+    return startY + headerH;
   };
-  drawTableHeader();
+  y = drawTableHeaderAt(y);
 
   for (const row of report.rows) {
-    y = ensureSpace(doc, y, rowH);
     const notConducted = Math.max(row.paid - row.completed, 0);
-    if (row.mismatch) doc.rect(MARGIN, y, pageWidth, rowH).fill('#FEF3C7');
-
-    let x = MARGIN;
     const cells = [
       row.trainerName,
       row.levelName,
@@ -68,6 +99,11 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
       String(notConducted),
       formatSumSigned(row.balance, L.sum),
     ];
+    const thisRowH = rowHeightFor(doc, cells, colWidths, 9, rowH);
+    y = ensureSpace(doc, y, thisRowH, () => drawTableHeaderAt(MARGIN));
+    if (row.mismatch) doc.rect(MARGIN, y, pageWidth, thisRowH).fill('#FEF3C7');
+
+    let x = MARGIN;
     cells.forEach((val, i) => {
       const c = cols[i];
       text(doc, val, x + 4, y + 5, {
@@ -77,10 +113,11 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
       });
       x += c.w;
     });
-    y += rowH;
+    y += thisRowH;
   }
 
   // Итоговая строка таблицы
+  y = ensureSpace(doc, y, rowH, () => drawTableHeaderAt(MARGIN));
   doc.rect(MARGIN, y, pageWidth, rowH).fill('#F3F4F6');
   text(doc, L.total, MARGIN + 4, y + 5, { size: 9, bold: true });
   text(doc, formatSumSigned(report.total, L.sum), MARGIN + pageWidth - cols[7].w + 4, y + 5, {
@@ -109,33 +146,33 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
   text(doc, L.dailyDetailTitle, MARGIN, y, { size: 11, bold: true });
   y += 18;
 
+  // "Статус" — самая частая причина переносов (длинные формулировки типа
+  // "Болезнь ребёнка (справки нет)", особенно на узбекском), поэтому у неё
+  // заметно больше места, чем у "Специалиста" (короткие имена).
   const dCols = [
-    { label: L.date, w: 0.14 },
-    { label: L.time, w: 0.14 },
-    { label: L.trainer, w: 0.22 },
-    { label: L.status, w: 0.26 },
-    { label: L.note, w: 0.24 },
+    { label: L.date, w: 0.13 },
+    { label: L.time, w: 0.13 },
+    { label: L.trainer, w: 0.18 },
+    { label: L.status, w: 0.3 },
+    { label: L.note, w: 0.26 },
   ].map((c) => ({ ...c, w: c.w * pageWidth }));
+  const dColWidths = dCols.map((c) => c.w);
 
-  const drawDailyHeader = () => {
+  const drawDailyHeaderAt = (startY) => {
+    const labels = dCols.map((c) => c.label);
+    const headerH = rowHeightFor(doc, labels, dColWidths, 8, rowH);
+    doc.rect(MARGIN, startY, pageWidth, headerH).fill('#F3F4F6');
     let x = MARGIN;
-    doc.rect(MARGIN, y, pageWidth, rowH).fill('#F3F4F6');
     for (const c of dCols) {
-      text(doc, c.label, x + 4, y + 5, { size: 8, bold: true, width: c.w - 8 });
+      text(doc, c.label, x + 4, startY + 5, { size: 8, bold: true, width: c.w - 8 });
       x += c.w;
     }
-    y += rowH;
+    return startY + headerH;
   };
-  drawDailyHeader();
+  y = drawDailyHeaderAt(y);
 
   for (const s of sessions) {
-    if (y + rowH > PAGE_BOTTOM) {
-      doc.addPage();
-      y = MARGIN;
-      drawDailyHeader();
-    }
     const trainer = s.actualTrainer || s.plannedTrainer;
-    let x = MARGIN;
     const rowVals = [
       formatDateShort(s.date),
       `${s.startTime}–${s.endTime}`,
@@ -143,12 +180,20 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
       L.statusLabels[s.status] || s.status,
       s.note || '',
     ];
+    const thisRowH = rowHeightFor(doc, rowVals, dColWidths, 8, rowH);
+
+    if (y + thisRowH > PAGE_BOTTOM) {
+      doc.addPage();
+      y = drawDailyHeaderAt(MARGIN);
+    }
+
+    let x = MARGIN;
     rowVals.forEach((val, i) => {
       const c = dCols[i];
       text(doc, val, x + 4, y + 5, { size: 8, width: c.w - 8 });
       x += c.w;
     });
-    y += rowH;
+    y += thisRowH;
   }
   y += 20;
 

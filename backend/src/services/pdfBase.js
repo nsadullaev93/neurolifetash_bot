@@ -5,7 +5,9 @@
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const { PassThrough } = require('stream');
-const { mixedText } = require('../utils/pdfText');
+const { mixedText, splitRuns } = require('../utils/pdfText');
+
+const CLASS_TO_FONT = { cyr: 'regular-cyr', cjk: 'regular-cjk', latin: 'regular-latin' };
 
 // Noto Sans, не Inter — см. подробное объяснение в pdfReport.service.js
 // (git-история) и в коммите фазы 9: декомпрессированные из woff2 файлы
@@ -70,6 +72,31 @@ function ensureSpace(doc, y, needed, onNewPage) {
   return y;
 }
 
+// Реальная высота строки текста в заданной ширине — нужна для таблиц, чтобы
+// строка с длинным текстом (длинные статусы/причины на узбекском, длинные
+// заметки) переносилась на несколько строк, не наезжая на следующую строку
+// таблицы. PDFKit меряет высоту только для ОДНОГО активного шрифта за раз, а
+// в ячейке может быть смесь кириллицы/латиницы/китайского (mixedText).
+// Меряем только теми шрифтами, чьи символы реально есть в строке (через тот
+// же classify(), что и сама отрисовка, — splitRuns) и берём максимум: если
+// мерить ЛЮБЫМ шрифтом подряд (включая тот, где для этих символов нет
+// глифов — например, китайским для кириллического текста), PDFKit подставит
+// widthless/notdef-глифы со своей шириной, и оценка получится сильно
+// завышенной — отсюда были неоправданно большие пустые промежутки между
+// строками с длинными заметками.
+function measureHeight(doc, str, width, fontSize) {
+  const s = str === undefined || str === null || str === '' ? ' ' : String(str);
+  const classes = new Set(splitRuns(s).map((r) => r.cls));
+  let max = 0;
+  for (const cls of classes) {
+    doc.font(CLASS_TO_FONT[cls]);
+    doc.fontSize(fontSize);
+    const h = doc.heightOfString(s, { width });
+    if (h > max) max = h;
+  }
+  return max;
+}
+
 function formatSum(amount, sumLabel) {
   const abs = Math.round(Math.abs(amount))
     .toString()
@@ -82,4 +109,4 @@ function formatSumSigned(amount, sumLabel) {
   return formatSum(amount, sumLabel);
 }
 
-module.exports = { createPdfDoc, text, ensureSpace, formatSum, formatSumSigned, MARGIN, PAGE_BOTTOM };
+module.exports = { createPdfDoc, text, ensureSpace, measureHeight, formatSum, formatSumSigned, MARGIN, PAGE_BOTTOM };
