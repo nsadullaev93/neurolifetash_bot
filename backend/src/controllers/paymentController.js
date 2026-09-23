@@ -1,6 +1,8 @@
 const PaymentModel = require('../models/Payment');
 const TrainerModel = require('../models/Trainer');
 const { logAudit } = require('../utils/audit');
+const { canApplyDiscount, rateWithDiscount } = require('../utils/discount');
+const config = require('../config/default');
 
 function serializePayment(payment) {
   return {
@@ -13,6 +15,7 @@ function serializePayment(payment) {
     paidSessions: payment.paidSessions,
     rateSnapshot: payment.rateSnapshot,
     totalAmount: payment.totalAmount,
+    discountApplied: payment.discountApplied,
     paidAt: payment.paidAt,
     note: payment.note,
   };
@@ -42,7 +45,7 @@ async function listHistory(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { year, month, trainerId, paidSessions, totalAmount, note } = req.body;
+    const { year, month, trainerId, paidSessions, totalAmount, note, discountApplied } = req.body;
     if (!year || !month || !trainerId || paidSessions === undefined) {
       return res.status(400).json({ error: 'Укажите year, month, trainerId и paidSessions' });
     }
@@ -50,9 +53,19 @@ async function create(req, res, next) {
     const trainer = await TrainerModel.findById(trainerId);
     if (!trainer) return res.status(400).json({ error: 'Специалист не найден' });
 
+    const wantsDiscount = !!discountApplied;
+    if (wantsDiscount && !canApplyDiscount(paidSessions)) {
+      return res.status(400).json({
+        error: `Скидка доступна только при оплате более ${config.discountThresholdSessions} занятий в месяц`,
+      });
+    }
+
     // За месяц одному специалисту можно внести несколько оплат (ТЗ v2, §2.10) —
     // формула сверки их суммирует, поэтому повторная оплата не блокируется.
-    const rateSnapshot = trainer.level.rate;
+    // rateSnapshot уже содержит эффективную (со скидкой или без) ставку —
+    // дальше по цепочке (сверка, отчёт, PDF) ничего специально знать про
+    // скидку не должно, кроме отображения флага discountApplied.
+    const rateSnapshot = rateWithDiscount(trainer.level.rate, wantsDiscount);
     const total = totalAmount !== undefined ? totalAmount : paidSessions * rateSnapshot;
 
     const created = await PaymentModel.create({
@@ -62,6 +75,7 @@ async function create(req, res, next) {
       paidSessions,
       rateSnapshot,
       totalAmount: total,
+      discountApplied: wantsDiscount,
       note,
     });
 
@@ -79,11 +93,24 @@ async function update(req, res, next) {
     const existing = await PaymentModel.findById(id);
     if (!existing) return res.status(404).json({ error: 'Оплата не найдена' });
 
-    const { paidSessions, totalAmount, note } = req.body;
+    const { paidSessions, totalAmount, note, discountApplied } = req.body;
     const data = {};
     if (paidSessions !== undefined) data.paidSessions = paidSessions;
     if (totalAmount !== undefined) data.totalAmount = totalAmount;
     if (note !== undefined) data.note = note;
+
+    if (discountApplied !== undefined) {
+      const effectivePaidSessions = paidSessions !== undefined ? paidSessions : existing.paidSessions;
+      if (discountApplied && !canApplyDiscount(effectivePaidSessions)) {
+        return res.status(400).json({
+          error: `Скидка доступна только при оплате более ${config.discountThresholdSessions} занятий в месяц`,
+        });
+      }
+      const trainer = await TrainerModel.findById(existing.trainerId);
+      data.discountApplied = discountApplied;
+      data.rateSnapshot = rateWithDiscount(trainer.level.rate, discountApplied);
+      if (totalAmount === undefined) data.totalAmount = effectivePaidSessions * data.rateSnapshot;
+    }
 
     const updated = await PaymentModel.update(id, data);
     await logAudit('MonthlyPayment', id, 'update', existing, updated);

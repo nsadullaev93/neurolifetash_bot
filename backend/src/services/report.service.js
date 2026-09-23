@@ -35,6 +35,7 @@ async function exportMonthlyXlsx(year, month) {
     { header: 'План', key: 'plan', width: 10 },
     { header: 'Оплачено', key: 'paid', width: 12 },
     { header: 'Проведено', key: 'completed', width: 12 },
+    { header: 'Скидка 10%', key: 'discountApplied', width: 12 },
     { header: 'Баланс', key: 'balance', width: 16 },
   ];
   sheet.getRow(1).font = { bold: true };
@@ -47,6 +48,7 @@ async function exportMonthlyXlsx(year, month) {
       plan: row.plan,
       paid: row.paid,
       completed: row.completed,
+      discountApplied: row.discountApplied ? 'да' : '',
       balance: row.balance,
     });
   }
@@ -67,7 +69,7 @@ async function exportMonthlyXlsx(year, month) {
 
   const titleSheet = workbook.getWorksheet(`Сверка ${month}.${year}`);
   titleSheet.insertRow(1, [`Сверка занятий — ${monthName(month)} ${year}`]);
-  titleSheet.mergeCells('A1:G1');
+  titleSheet.mergeCells('A1:H1');
   titleSheet.getCell('A1').font = { bold: true, size: 14 };
 
   return workbook.xlsx.writeBuffer();

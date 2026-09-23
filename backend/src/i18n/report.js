@@ -76,6 +76,7 @@ const dict = {
     sum: 'сум',
     spentOnConducted: 'Потрачено на проведённые занятия',
     sessionsUnit: 'занятий',
+    discountApplied: 'Применена скидка 10% (более 20 занятий в месяц)',
     reasons: {
       TRAINER_ABSENT: 'Специалист отсутствовал',
       CHILD_SICK_CERT: 'Болезнь ребёнка (справка есть)',
@@ -125,6 +126,7 @@ const dict = {
     sum: "so'm",
     spentOnConducted: "O'tkazilgan mashg'ulotlarga sarflandi",
     sessionsUnit: "mashg'ulot",
+    discountApplied: "10% chegirma qo'llanildi (oyiga 20 dan ortiq mashg'ulot)",
     reasons: {
       TRAINER_ABSENT: 'Mutaxassis kelmagan',
       CHILD_SICK_CERT: 'Bolaning kasalligi (spravka bor)',
@@ -181,6 +183,7 @@ const dict = {
     sum: '苏姆',
     spentOnConducted: '已完成课时花费',
     sessionsUnit: '节',
+    discountApplied: '已享受9折优惠(每月超过20节)',
     reasons: {
       TRAINER_ABSENT: '专家缺席',
       CHILD_SICK_CERT: '孩子生病(有证明)',

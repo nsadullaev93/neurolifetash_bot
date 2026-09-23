@@ -80,10 +80,10 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
     const notConducted = Math.max(row.paid - row.completed, 0);
     const balanceColor = row.balance < 0 ? '#B91C1C' : row.balance > 0 ? '#15803D' : '#111827';
 
-    y = ensureSpace(doc, y, 90);
+    const cardH = row.discountApplied ? 103 : 90;
+    y = ensureSpace(doc, y, cardH);
     if (row.mismatch) {
-      const bgH = 92;
-      doc.rect(MARGIN, y - 4, pageWidth, bgH).fill('#FEF3C7');
+      doc.rect(MARGIN, y - 4, pageWidth, cardH + 2).fill('#FEF3C7');
     }
 
     text(doc, `${row.trainerName} · ${row.levelName}`, MARGIN, y, { size: 12, bold: true, width: pageWidth - 140 });
@@ -118,6 +118,10 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
       color: '#374151',
     });
     y += 20;
+    if (row.discountApplied) {
+      text(doc, L.discountApplied, MARGIN, y, { size: 9, bold: true, color: '#15803D' });
+      y += 13;
+    }
   }
 
   y += 6;

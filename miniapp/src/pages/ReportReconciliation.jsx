@@ -93,6 +93,7 @@ export default function ReportReconciliation() {
                     <td>
                       {r.trainerName}
                       {r.mismatch && <span title="Расходится с данными центра"> ⚠️</span>}
+                      {r.discountApplied && <span title="Применена скидка 10%"> 🏷️</span>}
                     </td>
                     <td>{formatMoney(r.rate)}</td>
                     <td>{r.paid}</td>

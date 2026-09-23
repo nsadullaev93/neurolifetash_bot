@@ -32,6 +32,9 @@ async function calculateMonthlyReconciliation(year, month) {
     const hasPayment = trainerPayments.length > 0;
     const P = trainerPayments.reduce((sum, p) => sum + p.paidSessions, 0);
     const S = hasPayment ? trainerPayments[0].rateSnapshot : trainer.level.rate;
+    // Скидка привязана к тому же платежу, что задаёт S (первому по времени
+    // в месяце) — она уже "внутри" S, здесь только для отображения флага.
+    const discountApplied = hasPayment ? trainerPayments[0].discountApplied : false;
     const C = await SessionModel.countCompletedForTrainerMonth(trainer.id, year, month);
 
     // Сверка с цифрами центра (ТЗ v2, §2.12): пока никто не вносил цифры
@@ -55,6 +58,7 @@ async function calculateMonthlyReconciliation(year, month) {
       levelCode: trainer.level.code,
       levelName: trainer.level.name,
       rate: S,
+      discountApplied,
       plan,
       paid: P,
       completed: C,

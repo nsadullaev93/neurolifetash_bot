@@ -225,6 +225,7 @@ model MonthlyPayment {
   paidSessions    Int
   rateSnapshot    Int
   totalAmount     Int
+  discountApplied Boolean  @default(false) // скидка 10% при >20 занятий в месяц — по усмотрению администрации
   paidAt          DateTime @default(now())
   enteredByUserId Int?
   note            String?

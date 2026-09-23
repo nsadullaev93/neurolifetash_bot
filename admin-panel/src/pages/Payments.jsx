@@ -3,6 +3,11 @@ import { api } from '../api/client';
 import { formatMoney, RU_MONTHS_NOM } from '../utils/format';
 
 const now = new Date();
+// Те же значения, что в backend/src/config/default.js — скидка доступна,
+// только если оплачено больше DISCOUNT_THRESHOLD занятий за месяц, но не
+// применяется автоматически (решает администрация центра).
+const DISCOUNT_THRESHOLD = 20;
+const DISCOUNT_RATE = 0.1;
 
 export default function Payments() {
   const [payments, setPayments] = useState([]);
@@ -14,6 +19,7 @@ export default function Payments() {
   const [trainerId, setTrainerId] = useState('');
   const [paidSessions, setPaidSessions] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
+  const [discountApplied, setDiscountApplied] = useState(false);
   const [note, setNote] = useState('');
 
   const load = useCallback(async () => {
@@ -29,10 +35,25 @@ export default function Payments() {
 
   useEffect(() => { load(); }, [load]);
 
+  function recomputeTotal(sessionsValue, discount) {
+    const trainer = trainers.find((t) => String(t.id) === String(trainerId));
+    if (trainer && sessionsValue !== '') {
+      const rate = discount ? Math.round(trainer.level.rate * (1 - DISCOUNT_RATE)) : trainer.level.rate;
+      setTotalAmount(String(Number(sessionsValue) * rate));
+    }
+  }
+
   function onPaidSessionsChange(value) {
     setPaidSessions(value);
-    const trainer = trainers.find((t) => String(t.id) === String(trainerId));
-    if (trainer && value !== '') setTotalAmount(String(Number(value) * trainer.level.rate));
+    const eligible = Number(value) > DISCOUNT_THRESHOLD;
+    const nextDiscount = eligible && discountApplied;
+    if (nextDiscount !== discountApplied) setDiscountApplied(nextDiscount);
+    recomputeTotal(value, nextDiscount);
+  }
+
+  function toggleDiscount(checked) {
+    setDiscountApplied(checked);
+    recomputeTotal(paidSessions, checked);
   }
 
   async function submit(e) {
@@ -45,10 +66,12 @@ export default function Payments() {
         trainerId: Number(trainerId),
         paidSessions: Number(paidSessions),
         totalAmount: Number(totalAmount),
+        discountApplied,
         note,
       });
       setPaidSessions('');
       setTotalAmount('');
+      setDiscountApplied(false);
       setNote('');
       await load();
     } catch (err) {
@@ -103,6 +126,14 @@ export default function Payments() {
               <label>Заметка</label>
               <input value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
+            {Number(paidSessions) > DISCOUNT_THRESHOLD && (
+              <div className="field">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type="checkbox" checked={discountApplied} onChange={(e) => toggleDiscount(e.target.checked)} />
+                  Скидка 10% (&gt;{DISCOUNT_THRESHOLD} занятий)
+                </label>
+              </div>
+            )}
             <button className="btn btn-primary" type="submit">Сохранить</button>
           </div>
         </form>
@@ -111,7 +142,7 @@ export default function Payments() {
       <div className="panel">
         <table className="data-table">
           <thead>
-            <tr><th>Месяц</th><th>Специалист</th><th>Оплачено</th><th>Ставка</th><th>Сумма</th><th></th></tr>
+            <tr><th>Месяц</th><th>Специалист</th><th>Оплачено</th><th>Ставка</th><th>Скидка</th><th>Сумма</th><th></th></tr>
           </thead>
           <tbody>
             {payments.map((p) => (
@@ -120,6 +151,7 @@ export default function Payments() {
                 <td>{p.trainerName}</td>
                 <td>{p.paidSessions}</td>
                 <td>{formatMoney(p.rateSnapshot)}</td>
+                <td>{p.discountApplied ? '−10%' : '—'}</td>
                 <td>{formatMoney(p.totalAmount)}</td>
                 <td>
                   <button className="btn btn-danger btn-sm" onClick={() => remove(p.id)}>Удалить</button>

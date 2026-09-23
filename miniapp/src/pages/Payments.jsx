@@ -3,6 +3,11 @@ import { api } from '../api/client';
 import { formatMoney, RU_MONTHS_NOM } from '../utils/format';
 
 const now = new Date();
+// Скидка по усмотрению администрации центра — доступна только когда за
+// месяц оплачено больше DISCOUNT_THRESHOLD занятий, но не применяется
+// автоматически (backend/src/config/default.js: те же значения).
+const DISCOUNT_THRESHOLD = 20;
+const DISCOUNT_RATE = 0.1;
 
 export default function Payments() {
   const [year] = useState(now.getFullYear());
@@ -23,6 +28,7 @@ export default function Payments() {
   const [trainerId, setTrainerId] = useState('');
   const [paidSessions, setPaidSessions] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
+  const [discountApplied, setDiscountApplied] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
   const load = useCallback(async () => {
@@ -79,19 +85,34 @@ export default function Payments() {
       setEditingId(existing.id);
       setPaidSessions(String(existing.paidSessions));
       setTotalAmount(String(existing.totalAmount));
+      setDiscountApplied(!!existing.discountApplied);
     } else {
       setEditingId(null);
       setPaidSessions('');
       setTotalAmount('');
+      setDiscountApplied(false);
+    }
+  }
+
+  function recomputeTotal(sessionsValue, discount) {
+    const trainer = trainers.find((t) => String(t.id) === String(trainerId));
+    if (trainer && sessionsValue !== '') {
+      const rate = discount ? Math.round(trainer.level.rate * (1 - DISCOUNT_RATE)) : trainer.level.rate;
+      setTotalAmount(String(Number(sessionsValue) * rate));
     }
   }
 
   function onPaidSessionsChange(value) {
     setPaidSessions(value);
-    const trainer = trainers.find((t) => String(t.id) === String(trainerId));
-    if (trainer && value !== '') {
-      setTotalAmount(String(Number(value) * trainer.level.rate));
-    }
+    const eligible = Number(value) > DISCOUNT_THRESHOLD;
+    const nextDiscount = eligible && discountApplied;
+    if (nextDiscount !== discountApplied) setDiscountApplied(nextDiscount);
+    recomputeTotal(value, nextDiscount);
+  }
+
+  function toggleDiscount(checked) {
+    setDiscountApplied(checked);
+    recomputeTotal(paidSessions, checked);
   }
 
   async function submit(e) {
@@ -105,6 +126,7 @@ export default function Payments() {
         trainerId: Number(trainerId),
         paidSessions: Number(paidSessions),
         totalAmount: Number(totalAmount),
+        discountApplied,
       };
       if (editingId) {
         await api.updatePayment(editingId, payload);
@@ -225,6 +247,15 @@ export default function Payments() {
           />
         </div>
 
+        {Number(paidSessions) > DISCOUNT_THRESHOLD && (
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400 }}>
+              <input type="checkbox" checked={discountApplied} onChange={(e) => toggleDiscount(e.target.checked)} />
+              Скидка 10% (более {DISCOUNT_THRESHOLD} занятий — по усмотрению центра)
+            </label>
+          </div>
+        )}
+
         {overpay && (
           <div className="warning-box">
             Оплачено {paidSessions}, по графику {plan}. Возможна переплата на {overpay.extra} занятий ({formatMoney(overpay.amount)}).
@@ -262,7 +293,10 @@ export default function Payments() {
                   <td>{RU_MONTHS_NOM[p.month - 1].slice(0, 3)} {p.year}</td>
                   <td>{p.trainerName}</td>
                   <td>{p.paidSessions}</td>
-                  <td>{formatMoney(p.totalAmount)}</td>
+                  <td>
+                    {formatMoney(p.totalAmount)}
+                    {p.discountApplied && <span title="Применена скидка 10%"> 🏷️</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>

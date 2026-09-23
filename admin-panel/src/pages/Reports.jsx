@@ -74,7 +74,10 @@ export default function Reports() {
               <tbody>
                 {report.rows.map((r) => (
                   <tr key={r.trainerId}>
-                    <td>{r.trainerName}</td>
+                    <td>
+                      {r.trainerName}
+                      {r.discountApplied && <span title="Применена скидка 10%"> 🏷️</span>}
+                    </td>
                     <td>{formatMoney(r.rate)}</td>
                     <td>{r.plan}</td>
                     <td>{r.paid}</td>
