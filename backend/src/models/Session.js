@@ -47,21 +47,21 @@ async function countUnmarkedForDate(dateOnlyValue) {
   return prisma.session.count({ where: { date: dateOnlyValue, status: 'PLANNED' } });
 }
 
-// Занятия сегодняшнего дня, заканчивающиеся в endTime и ещё не отмеченные —
-// кандидаты на чат-чекин через 5 минут после конца (ТЗ v2, §7.1).
-// thresholdEndTime — "HH:MM" ("сейчас минус 5 минут"). Раньше сравнивалось
-// точным совпадением endTime === thresholdEndTime: если ровно этот
-// минутный тик cron не выполнялся (рестарт при деплое, сбой БД), чекин по
-// занятию терялся навсегда — то самое время больше никогда не наступит
-// (аудит надёжности, фаза 3). Диапазон endTime <= threshold — тот же
-// список сегодняшних кандидатов, но переживает пропущенный тик: занятие
-// остаётся "due", пока за него не отправят чекин (фильтрация по уже
-// отправленным — в checkin.service.sendDueCheckins).
-async function listDueForCheckin(dateOnlyValue, thresholdEndTime) {
+// Неотмеченные занятия в диапазоне дат — кандидаты на чат-чекин через 5
+// минут после конца (ТЗ v2, §7.1). checkin.service.sendDueCheckins сам
+// решает, у кого из них конец уже наступил (сравнивая единый момент
+// дата+время с cutoff — см. combineDateAndTime в utils/date.js), поэтому
+// здесь фильтр только по статусу и достаточно широкому диапазону дат:
+// раньше кандидаты выбирались прямо в БД по endTime <= "HH:MM" ПРИ
+// точном совпадении date — из-за раздельного сравнения даты и времени на
+// границе полуночи 23.09.2026 чекины ушли на ещё не начавшиеся вечерние
+// занятия (см. коммит). Диапазон дат (а не отдельные дата+время в SQL) не
+// допускает такого расхождения в принципе.
+async function listPlannedInDateRange(fromDateOnly, toDateOnly) {
   return prisma.session.findMany({
-    where: { date: dateOnlyValue, endTime: { lte: thresholdEndTime }, status: 'PLANNED' },
+    where: { date: { gte: fromDateOnly, lte: toDateOnly }, status: 'PLANNED' },
     include: includeTrainers,
-    orderBy: { startTime: 'asc' },
+    orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
   });
 }
 
@@ -115,7 +115,7 @@ module.exports = {
   listBetween,
   listUnmarkedBefore,
   countUnmarkedForDate,
-  listDueForCheckin,
+  listPlannedInDateRange,
   update,
   create,
   remove,

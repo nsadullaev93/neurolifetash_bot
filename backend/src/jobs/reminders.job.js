@@ -71,6 +71,23 @@ function withOverlapGuard(name, fn) {
 const errorNotifyCooldown = new Map();
 const ERROR_NOTIFY_COOLDOWN_MS = 60 * 60 * 1000;
 
+// Один нерабочий чат (пользователь заблокировал бота, удалил аккаунт —
+// Telegram отвечает 400 "chat not found") раньше обрывал ВЕСЬ цикл
+// рассылки: исключение из sendMessage внутри for-цикла уходило прямо в
+// внешний try/catch задачи, и все пользователи ПОСЛЕ проблемного в списке
+// не получали сообщение вообще ни в этом тике, ни в следующих (ошибка
+// повторялась каждую минуту на той же самой точке). Найдено 23.09.2026 по
+// логу «Фоновая задача "напоминание о неотмеченных занятиях" не
+// выполнилась: 400: Bad Request: chat not found». safeSend ловит ошибку
+// на месте, чтобы рассылка продолжалась для остальных получателей.
+async function safeSend(bot, telegramId, text, extra) {
+  try {
+    await bot.telegram.sendMessage(Number(telegramId), text, extra);
+  } catch (err) {
+    console.error(`Не удалось отправить сообщение пользователю ${telegramId}:`, err.message);
+  }
+}
+
 async function notifyOwnerOfError(bot, jobName, err) {
   console.error(`Ошибка фоновой задачи «${jobName}»:`, err.message);
   if (!config.ownerTelegramId) return;
@@ -107,11 +124,7 @@ function startReminderJobs(bot) {
           if (!user.remindersOn) continue;
           if (user.reminderTime !== hm) continue;
 
-          await bot.telegram.sendMessage(
-            Number(user.telegramId),
-            `Отметьте занятия за сегодня: ${unmarkedCount} не отмечено.`,
-            webAppKeyboard(),
-          );
+          await safeSend(bot, user.telegramId, `Отметьте занятия за сегодня: ${unmarkedCount} не отмечено.`, webAppKeyboard());
         }
       } catch (err) {
         await notifyOwnerOfError(bot, 'напоминание о неотмеченных занятиях', err);
@@ -159,7 +172,7 @@ function startReminderJobs(bot) {
 
         for (const user of users) {
           if (!user.remindersOn) continue;
-          await bot.telegram.sendMessage(Number(user.telegramId), text, webAppKeyboard('Открыть оплаты'));
+          await safeSend(bot, user.telegramId, text, webAppKeyboard('Открыть оплаты'));
         }
       } catch (err) {
         await notifyOwnerOfError(bot, 'расчёт оплаты на месяц', err);
@@ -190,7 +203,7 @@ function startReminderJobs(bot) {
         const users = await moneyAudienceUsers();
         for (const user of users) {
           if (!user.remindersOn) continue;
-          await bot.telegram.sendMessage(Number(user.telegramId), text, webAppKeyboard('Внести оплату'));
+          await safeSend(bot, user.telegramId, text, webAppKeyboard('Внести оплату'));
         }
       } catch (err) {
         await notifyOwnerOfError(bot, 'напоминание об оплате (1-7 число)', err);
@@ -279,7 +292,7 @@ function startReminderJobs(bot) {
 
         for (const user of users) {
           if (!user.remindersOn) continue;
-          await bot.telegram.sendMessage(Number(user.telegramId), text, decisionKeyboard);
+          await safeSend(bot, user.telegramId, text, decisionKeyboard);
         }
       } catch (err) {
         await notifyOwnerOfError(bot, 'итоговая сверка месяца', err);
@@ -314,7 +327,7 @@ function startReminderJobs(bot) {
             ]);
             for (const user of users) {
               if (!user.remindersOn) continue;
-              await bot.telegram.sendMessage(Number(user.telegramId), text, keyboard);
+              await safeSend(bot, user.telegramId, text, keyboard);
             }
           }
         }

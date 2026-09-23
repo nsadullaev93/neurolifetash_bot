@@ -3,7 +3,7 @@ const SessionModel = require('../models/Session');
 const SessionCheckinModel = require('../models/SessionCheckin');
 const FamilyMemberModel = require('../models/FamilyMember');
 const TrainerModel = require('../models/Trainer');
-const { nowTz, dateOnly } = require('../utils/date');
+const { nowTz, dateOnly, combineDateAndTime } = require('../utils/date');
 
 // «Без причины» и другие быстрые причины из кнопок чат-чекина (ТЗ v2,
 // §7.1) — упрощённый набор по сравнению с полным списком статусов в
@@ -96,42 +96,54 @@ async function updateAllCopies(bot, sessionId, text, keyboard) {
   }
 }
 
-// Кандидаты на отправку: занятия, закончившиеся 5+ минут назад (в пределах
-// ТОГО ЖЕ календарного дня, что и "сейчас минус 5 минут" — см. ниже), ещё
-// не отмеченные И ещё без отправленного чекина. Вызывается раз в минуту
-// (ТЗ v2, §7.1). Диапазон вместо точного совпадения минуты — переживает
-// пропущенный тик (см. Session.listDueForCheckin); фильтр по
-// existsForSession нужен именно поэтому — иначе занятие, чекин по
-// которому уже разослан, но ещё не отвечен, рассылалось бы повторно
-// на каждом следующем тике.
+// Кандидаты на отправку: занятия, закончившиеся 5+ минут назад, ещё не
+// отмеченные И ещё без отправленного чекина. Вызывается раз в минуту
+// (ТЗ v2, §7.1).
 //
-// Баг, исправленный 23.09.2026: дата и время раньше брались из ДВУХ разных
-// "сейчас" (todayDateOnly() — календарный день на момент вызова; currentHM(5)
-// — только "ЧЧ:ММ", без даты). Ровно в первые 5 минут после полуночи это
-// расходится: currentHM(5) возвращает "23:5X" (время суток вчерашнего дня),
-// а todayDateOnly() уже сегодняшний — в паре с диапазоном (endTime <=
-// порог) это ловило вообще ВСЕ сегодняшние занятия, ещё не начавшиеся,
-// потому что почти любое endTime дня <= "23:5X". Отсюда чекины в 00:00 про
-// занятия, которые ещё не проводились. Фикс — брать дату и время из ОДНОГО
-// и того же момента ("сейчас минус 5 минут"), а не из двух независимых.
+// Баг, исправленный 23.09.2026 (первая попытка): дата и время раньше
+// брались из ДВУХ разных "сейчас" (todayDateOnly() отдельно от currentHM(5)).
+// Ровно в первые 5 минут после полуночи это расходилось, отправляя чекины
+// про ещё не проведённые вечерние занятия. Первый фикс объединил источник
+// (один cutoff), но в проде баг всё равно повторился на следующую же
+// полночь — сравнение "дата == сегодня" И "время <= порог" ПО ОТДЕЛЬНОСТИ
+// в SQL-запросе (см. старый Session.listDueForCheckin) оставляло саму
+// структурную возможность для расхождения. Второй, окончательный фикс:
+// запрашиваем из БД только диапазон дат (сегодня и вчера — переживает
+// пропущенный тик так же, как раньше), а "прошло ли уже 5 минут после
+// конца" проверяем в JS через ОДИН комбинированный момент дата+время
+// (combineDateAndTime) в сравнении с ОДНИМ cutoff — так дата и время
+// физически не могут быть взяты из разных мест.
 async function sendDueCheckins(bot) {
   const cutoff = nowTz().subtract(5, 'minute');
-  const targetDate = dateOnly(cutoff.year(), cutoff.month() + 1, cutoff.date());
-  const targetEndTime = cutoff.format('HH:mm');
-  const candidates = await SessionModel.listDueForCheckin(targetDate, targetEndTime);
+  const today = dateOnly(cutoff.year(), cutoff.month() + 1, cutoff.date());
+  const yesterday = dateOnly(cutoff.year(), cutoff.month() + 1, cutoff.date() - 1);
+  const candidates = await SessionModel.listPlannedInDateRange(yesterday, today);
   if (candidates.length === 0) return;
 
-  const alreadySent = await Promise.all(candidates.map((s) => SessionCheckinModel.existsForSession(s.id)));
-  const sessions = candidates.filter((_, i) => !alreadySent[i]);
+  const dueCandidates = candidates.filter((s) => !combineDateAndTime(s.date, s.endTime).isAfter(cutoff));
+  if (dueCandidates.length === 0) return;
+
+  const alreadySent = await Promise.all(dueCandidates.map((s) => SessionCheckinModel.existsForSession(s.id)));
+  const sessions = dueCandidates.filter((_, i) => !alreadySent[i]);
   if (sessions.length === 0) return;
 
   const members = await FamilyMemberModel.listAll();
   const recipients = members.filter((m) => m.sessionPings);
   if (recipients.length === 0) return;
 
-  let isFirstOfDay = !(await SessionCheckinModel.existsForDate(targetDate));
-
+  // «Сегодня не идём» — только на самом первом сообщении КАЖДОГО дня (не
+  // всего запуска): кандидаты теперь могут относиться к двум разным
+  // календарным дням (сегодня/вчера, догоняем пропущенный тик), поэтому
+  // считаем отдельно на каждую дату, а не одним общим флагом.
+  const firstOfDayCache = new Map();
   for (const session of sessions) {
+    const dateKey = new Date(session.date).getTime();
+    let isFirstOfDay = firstOfDayCache.get(dateKey);
+    if (isFirstOfDay === undefined) {
+      isFirstOfDay = !(await SessionCheckinModel.existsForDate(session.date));
+    }
+    firstOfDayCache.set(dateKey, false);
+
     const text = questionText(session);
     const keyboard = questionKeyboard(session.id, isFirstOfDay, rev(session));
 
@@ -143,7 +155,6 @@ async function sendDueCheckins(bot) {
         console.error(`Не удалось отправить чекин (session ${session.id}, user ${member.userId}):`, err.message);
       }
     }
-    isFirstOfDay = false; // кнопка «Сегодня не идём» — только на самом первом сообщении дня
   }
 }
 

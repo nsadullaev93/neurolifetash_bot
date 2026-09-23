@@ -1,8 +1,16 @@
 // Чистая логика, без БД.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const dayjs = require('dayjs');
 const checkin = require('../src/services/checkin.service');
-const { nowTz, dateOnly } = require('../src/utils/date');
+const { nowTz, dateOnly, combineDateAndTime } = require('../src/utils/date');
+
+// Тот же предикат "занятие уже наступило 5+ минут назад", что и в
+// sendDueCheckins (checkin.service.js) — воспроизводит его напрямую на
+// синтетических данных, без БД/бота.
+function isDue(session, cutoff) {
+  return !combineDateAndTime(session.date, session.endTime).isAfter(cutoff);
+}
 
 test('rev() детерминирован для одного updatedAt', () => {
   const t = new Date('2026-09-22T10:00:00Z');
@@ -26,35 +34,35 @@ test('resultText указывает причину для непроведённ
   assert.match(checkin.resultText(session, null), /специалист отсутствовал/);
 });
 
-// Регрессия 23.09.2026: sendDueCheckins считал порог "сейчас минус 5 минут"
-// из даты и времени по отдельности (todayDateOnly() + currentHM(5)) — в
-// первые 5 минут после полуночи currentHM(5) возвращает время ВЧЕРАШНЕГО
-// дня ("23:5X"), а todayDateOnly() уже СЕГОДНЯШНИЙ — в паре с диапазоном
-// (endTime <= порог) это ловило вообще все сегодняшние занятия, ещё не
-// начавшиеся (чекины про занятия, которые ещё не проводились). Проверяем,
-// что дата и время берутся из ОДНОГО момента и корректно откатываются
-// вместе при пересечении полуночи.
-test('порог чекина откатывает дату при пересечении полуночи, а не только время', () => {
-  const dayjs = require('dayjs');
-  const midnight = dayjs.tz('2026-09-23 00:02', 'Asia/Tashkent');
-  const cutoff = midnight.subtract(5, 'minute');
-  const targetDate = dateOnly(cutoff.year(), cutoff.month() + 1, cutoff.date());
-  const targetEndTime = cutoff.format('HH:mm');
-
-  assert.equal(targetEndTime, '23:57');
+// Регрессия 23.09.2026 (первая попытка фикса): sendDueCheckins считал порог
+// "сейчас минус 5 минут" из даты и времени по отдельности (todayDateOnly() +
+// currentHM(5)) — в первые минуты после полуночи это расходилось, отправляя
+// чекины про сегодняшние занятия, которые ещё не начались. Первый фикс
+// объединил источник в один cutoff, но всё равно сравнивал "дата" и "время"
+// ПО ОТДЕЛЬНОСТИ (date равенство + endTime диапазон) — в проде на
+// следующую же полночь баг повторился (см. историю в checkin.service.js).
+// Второй фикс убирает саму возможность разъехаться: сравнивается ОДИН
+// комбинированный момент (combineDateAndTime) с ОДНИМ cutoff.
+test('регрессия: вечернее занятие СЕГОДНЯШНЕГО дня не считается due сразу после полуночи', () => {
+  const cutoff = dayjs.tz('2026-09-23 00:02', 'Asia/Tashkent').subtract(5, 'minute'); // 2026-09-22 23:57
+  const eveningSessionToday = { date: dateOnly(2026, 9, 23), endTime: '16:40' };
   assert.equal(
-    targetDate.toISOString().slice(0, 10),
-    '2026-09-22',
-    'дата должна откатиться на вчерашний день вместе со временем, а не остаться сегодняшней',
+    isDue(eveningSessionToday, cutoff),
+    false,
+    'занятие в 16:40 сегодняшнего дня не должно быть due в 00:02 (та самая полночная ошибка)',
   );
 });
 
-test('порог чекина в обычное время суток не трогает дату', () => {
-  const dayjs = require('dayjs');
-  const noon = dayjs.tz('2026-09-22 12:10', 'Asia/Tashkent');
-  const cutoff = noon.subtract(5, 'minute');
-  const targetDate = dateOnly(cutoff.year(), cutoff.month() + 1, cutoff.date());
+test('вчерашнее занятие, закончившееся перед самой полуночью, остаётся due (переживает пропущенный тик)', () => {
+  const cutoff = dayjs.tz('2026-09-23 00:02', 'Asia/Tashkent').subtract(5, 'minute'); // 2026-09-22 23:57
+  const lateSessionYesterday = { date: dateOnly(2026, 9, 22), endTime: '23:50' };
+  assert.equal(isDue(lateSessionYesterday, cutoff), true);
+});
 
-  assert.equal(cutoff.format('HH:mm'), '12:05');
-  assert.equal(targetDate.toISOString().slice(0, 10), '2026-09-22');
+test('порог чекина в обычное время суток корректно отсекает будущие занятия того же дня', () => {
+  const cutoff = dayjs.tz('2026-09-22 12:10', 'Asia/Tashkent').subtract(5, 'minute'); // 12:05
+  const justEnded = { date: dateOnly(2026, 9, 22), endTime: '12:00' };
+  const notYet = { date: dateOnly(2026, 9, 22), endTime: '12:10' };
+  assert.equal(isDue(justEnded, cutoff), true);
+  assert.equal(isDue(notYet, cutoff), false);
 });

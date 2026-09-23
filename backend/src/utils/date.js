@@ -45,6 +45,23 @@ function todayDateOnly() {
   return dateOnly(n.year(), n.month() + 1, n.date());
 }
 
+// Собирает Date-only значение (UTC-полночь, представляющий календарный день
+// в Ташкенте) и "HH:mm" в единый dayjs-момент в таймзоне Ташкента. Нужно
+// везде, где раньше "дата" и "время" сравнивались с cutoff по отдельности —
+// именно из-за такого раздельного сравнения был баг чат-чекинов 23.09.2026
+// (checkin.service.js): на границе полуночи "дата" и "время" считались из
+// одного и того же cutoff, но всё равно ушли в разные дни в проде, отчего
+// чекины на ещё не начавшиеся вечерние занятия ушли в 00:00. Сравнение
+// ЕДИНОГО момента с другим единым моментом такого расхождения структурно не
+// допускает.
+function combineDateAndTime(dateOnlyValue, hm) {
+  const d = new Date(dateOnlyValue);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return dayjs.tz(`${y}-${mo}-${day} ${hm}`, TZ);
+}
+
 function toDateOnly(d) {
   const x = new Date(d);
   return new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate()));
@@ -129,6 +146,7 @@ module.exports = {
   currentHM,
   dateOnly,
   todayDateOnly,
+  combineDateAndTime,
   toDateOnly,
   ymd,
   isoWeekday,
