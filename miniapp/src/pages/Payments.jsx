@@ -277,7 +277,7 @@ export default function Payments() {
           <div className="form-group">
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400 }}>
               <input type="checkbox" checked={discountApplied} onChange={(e) => toggleDiscount(e.target.checked)} />
-              Скидка 10% (от {DISCOUNT_THRESHOLD} занятий — по усмотрению центра)
+              Скидка 10% (от {DISCOUNT_THRESHOLD} занятий)
             </label>
           </div>
         )}
