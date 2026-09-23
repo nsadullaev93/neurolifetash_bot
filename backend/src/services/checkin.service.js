@@ -3,7 +3,7 @@ const SessionModel = require('../models/Session');
 const SessionCheckinModel = require('../models/SessionCheckin');
 const FamilyMemberModel = require('../models/FamilyMember');
 const TrainerModel = require('../models/Trainer');
-const { todayDateOnly, currentHM } = require('../utils/date');
+const { nowTz, dateOnly } = require('../utils/date');
 
 // «Без причины» и другие быстрые причины из кнопок чат-чекина (ТЗ v2,
 // §7.1) — упрощённый набор по сравнению с полным списком статусов в
@@ -96,17 +96,29 @@ async function updateAllCopies(bot, sessionId, text, keyboard) {
   }
 }
 
-// Кандидаты на отправку: занятия сегодня, закончившиеся 5+ минут назад,
-// ещё не отмеченные И ещё без отправленного чекина. Вызывается раз в
-// минуту (ТЗ v2, §7.1). Диапазон вместо точного совпадения минуты —
-// переживает пропущенный тик (см. Session.listDueForCheckin); фильтр по
+// Кандидаты на отправку: занятия, закончившиеся 5+ минут назад (в пределах
+// ТОГО ЖЕ календарного дня, что и "сейчас минус 5 минут" — см. ниже), ещё
+// не отмеченные И ещё без отправленного чекина. Вызывается раз в минуту
+// (ТЗ v2, §7.1). Диапазон вместо точного совпадения минуты — переживает
+// пропущенный тик (см. Session.listDueForCheckin); фильтр по
 // existsForSession нужен именно поэтому — иначе занятие, чекин по
 // которому уже разослан, но ещё не отвечен, рассылалось бы повторно
 // на каждом следующем тике.
+//
+// Баг, исправленный 23.09.2026: дата и время раньше брались из ДВУХ разных
+// "сейчас" (todayDateOnly() — календарный день на момент вызова; currentHM(5)
+// — только "ЧЧ:ММ", без даты). Ровно в первые 5 минут после полуночи это
+// расходится: currentHM(5) возвращает "23:5X" (время суток вчерашнего дня),
+// а todayDateOnly() уже сегодняшний — в паре с диапазоном (endTime <=
+// порог) это ловило вообще ВСЕ сегодняшние занятия, ещё не начавшиеся,
+// потому что почти любое endTime дня <= "23:5X". Отсюда чекины в 00:00 про
+// занятия, которые ещё не проводились. Фикс — брать дату и время из ОДНОГО
+// и того же момента ("сейчас минус 5 минут"), а не из двух независимых.
 async function sendDueCheckins(bot) {
-  const targetEndTime = currentHM(5); // "сейчас минус 5 минут"
-  const today = todayDateOnly();
-  const candidates = await SessionModel.listDueForCheckin(today, targetEndTime);
+  const cutoff = nowTz().subtract(5, 'minute');
+  const targetDate = dateOnly(cutoff.year(), cutoff.month() + 1, cutoff.date());
+  const targetEndTime = cutoff.format('HH:mm');
+  const candidates = await SessionModel.listDueForCheckin(targetDate, targetEndTime);
   if (candidates.length === 0) return;
 
   const alreadySent = await Promise.all(candidates.map((s) => SessionCheckinModel.existsForSession(s.id)));
@@ -117,7 +129,7 @@ async function sendDueCheckins(bot) {
   const recipients = members.filter((m) => m.sessionPings);
   if (recipients.length === 0) return;
 
-  let isFirstOfDay = !(await SessionCheckinModel.existsForDate(today));
+  let isFirstOfDay = !(await SessionCheckinModel.existsForDate(targetDate));
 
   for (const session of sessions) {
     const text = questionText(session);
