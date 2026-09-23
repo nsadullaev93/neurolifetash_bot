@@ -10,8 +10,12 @@ const DISCOUNT_THRESHOLD = 20;
 const DISCOUNT_RATE = 0.1;
 
 export default function Payments() {
-  const [year] = useState(now.getFullYear());
-  const [month] = useState(now.getMonth() + 1);
+  // Год/месяц оплаты — выбираются в разделе «Внести оплату» (можно внести
+  // оплату заранее на будущий месяц или задним числом за прошлый); от них
+  // же зависит «Статус оплаты за месяц» ниже, так что переключение месяца
+  // обновляет обе секции разом.
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
   const [trainers, setTrainers] = useState([]);
   const [payments, setPayments] = useState([]);
   const [history, setHistory] = useState([]);
@@ -78,9 +82,13 @@ export default function Payments() {
   const forecastRow = forecast?.breakdown.find((b) => String(b.trainerId) === String(trainerId));
   const plan = forecastRow?.plan;
 
-  function selectTrainer(id) {
-    setTrainerId(id);
-    const existing = payments.find((p) => String(p.trainerId) === String(id));
+  // Синхронизирует форму (кол-во/сумма/скидка) с уже внесённой оплатой
+  // выбранного специалиста за выбранный год/месяц — срабатывает и при
+  // смене специалиста, и при смене месяца (после того как payments
+  // перезагрузятся под новый месяц).
+  useEffect(() => {
+    if (!trainerId) return;
+    const existing = payments.find((p) => String(p.trainerId) === String(trainerId));
     if (existing) {
       setEditingId(existing.id);
       setPaidSessions(String(existing.paidSessions));
@@ -92,6 +100,19 @@ export default function Payments() {
       setTotalAmount('');
       setDiscountApplied(false);
     }
+  }, [payments, trainerId]);
+
+  function selectTrainer(id) {
+    setTrainerId(id);
+  }
+
+  function shiftPaymentMonth(delta) {
+    let m = month + delta;
+    let y = year;
+    if (m > 12) { m = 1; y += 1; }
+    if (m < 1) { m = 12; y -= 1; }
+    setMonth(m);
+    setYear(y);
   }
 
   function recomputeTotal(sessionsValue, discount) {
@@ -211,6 +232,11 @@ export default function Payments() {
       )}
 
       <div className="section-title">Внести оплату</div>
+      <div className="calendar-header" style={{ marginBottom: 10 }}>
+        <button type="button" className="icon-btn" onClick={() => shiftPaymentMonth(-1)} aria-label="Предыдущий месяц">‹</button>
+        <h2>{RU_MONTHS_NOM[month - 1]} {year}</h2>
+        <button type="button" className="icon-btn" onClick={() => shiftPaymentMonth(1)} aria-label="Следующий месяц">›</button>
+      </div>
       <form className="card" onSubmit={submit}>
         {success && <div className="warning-box" style={{ background: 'var(--green-bg)', color: 'var(--green)' }}>{success}</div>}
 
