@@ -64,6 +64,28 @@ function text(doc, str, x, y, opts = {}) {
   });
 }
 
+// Правое выравнивание для смешанного (кириллица+латиница+CJK) текста —
+// НЕ через опцию align:'right' в PDFKit. Баг, найденный 23.09.2026: когда
+// mixedText переключает шрифт посреди строки (несколько вызовов doc.text
+// с continued:true), align:'right' с явным width заставляет PDFKit
+// пересчитывать позицию для КАЖДОГО куска независимо — куски накладываются
+// друг на друга вместо того, чтобы просто идти подряд (например, "+460 000
+// сум" рисовалось как "+460 000" и "сум" почти в одной точке). Вместо этого
+// сами меряем ширину строки (mixedWidth, как в measureHeight — тем
+// шрифтом, чьи символы реально есть в каждом куске) и рисуем обычным
+// left-aligned text() от вычисленной x = правый_край - ширина.
+function textRight(doc, str, rightEdgeX, y, opts = {}) {
+  const bold = !!opts.bold;
+  const fontFor = (cls) => `${bold ? 'bold' : 'regular'}-${cls}`;
+  doc.fontSize(opts.size || 10);
+  const runs = splitRuns(String(str ?? ''));
+  const width = runs.reduce((sum, run) => {
+    doc.font(fontFor(run.cls));
+    return sum + doc.widthOfString(run.text);
+  }, 0);
+  text(doc, str, rightEdgeX - width, y, { ...opts, width: undefined, align: undefined });
+}
+
 function ensureSpace(doc, y, needed, onNewPage) {
   if (y + needed > PAGE_BOTTOM) {
     doc.addPage();
@@ -109,4 +131,14 @@ function formatSumSigned(amount, sumLabel) {
   return formatSum(amount, sumLabel);
 }
 
-module.exports = { createPdfDoc, text, ensureSpace, measureHeight, formatSum, formatSumSigned, MARGIN, PAGE_BOTTOM };
+module.exports = {
+  createPdfDoc,
+  text,
+  textRight,
+  ensureSpace,
+  measureHeight,
+  formatSum,
+  formatSumSigned,
+  MARGIN,
+  PAGE_BOTTOM,
+};

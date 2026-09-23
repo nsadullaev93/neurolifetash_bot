@@ -3,10 +3,11 @@
 const { getMonthlyReport } = require('./report.service');
 const SessionModel = require('../models/Session');
 const { t, monthYearLabel, formatDateFor } = require('../i18n/report');
-const { formatDateShort } = require('../utils/date');
+const { formatDateShort, isoWeekday } = require('../utils/date');
 const {
   createPdfDoc,
   text,
+  textRight,
   ensureSpace,
   measureHeight,
   formatSum,
@@ -27,6 +28,15 @@ function rowHeightFor(doc, cells, widths, fontSize, minH) {
     if (h > max) max = h;
   });
   return max;
+}
+
+// Понедельник той недели, к которой относится дата — используется только
+// для сравнения "сменилась ли неделя" между соседними занятиями, не для
+// отображения.
+function mondayOf(d) {
+  const x = new Date(d);
+  const wd = isoWeekday(x); // 1..7
+  return Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate() - (wd - 1));
 }
 
 async function buildMonthlyReportPdf(year, month, lang, childName) {
@@ -50,82 +60,67 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
   }
   y += 10;
 
-  // 2. Сводная таблица по специалистам. Ширины колонок подобраны так, чтобы
-  // типичные значения (даже на самом длинном из трёх языков) помещались в
-  // одну строку без переноса, но точная подгонка под все локали ненадёжна —
-  // поэтому высота строки всё равно считается динамически (rowHeightFor),
-  // а не фиксирована: если где-то всё же перенесётся на 2 строки, следующая
-  // строка таблицы больше не наедет на неё сверху (раньше высота строки
-  // была жёстко зашита в 20pt, и любой перенос текста — например,
-  // "Начальный" в узкой колонке "Уровень" — наезжал на следующую строку).
-  const cols = [
-    { key: 'trainer', label: L.trainer, w: 0.14 },
-    { key: 'level', label: L.level, w: 0.13 },
-    { key: 'rate', label: L.rate, w: 0.13 },
-    { key: 'paid', label: L.paid, w: 0.08 },
-    { key: 'conducted', label: L.conducted, w: 0.09 },
-    { key: 'center', label: L.centerConducted, w: 0.13 },
-    { key: 'notConducted', label: L.notConducted, w: 0.09 },
-    { key: 'balance', label: L.balance, w: 0.21 },
-  ].map((c) => ({ ...c, w: c.w * pageWidth }));
-  const colWidths = cols.map((c) => c.w);
-
-  const rowH = 20; // минимальная высота однострочной строки
-  // Чистая функция от startY, а не замыкание над внешним y — иначе при
-  // переносе на новую страницу (см. ensureSpace(..., drawTableHeader) ниже)
-  // шапка нарисовалась бы на позиции СТАРОЙ страницы вместо верха новой.
-  const drawTableHeaderAt = (startY) => {
-    const labels = cols.map((c) => c.label);
-    const headerH = rowHeightFor(doc, labels, colWidths, 7, 24);
-    doc.rect(MARGIN, startY, pageWidth, headerH).fill('#F3F4F6');
-    let x = MARGIN;
-    for (const c of cols) {
-      text(doc, c.label, x + 4, startY + 5, { size: 7, bold: true, width: c.w - 8 });
-      x += c.w;
-    }
-    return startY + headerH;
-  };
-  y = drawTableHeaderAt(y);
+  // 2. Сводка по специалистам — карточка на каждого, не таблица с колонками.
+  // Раньше это была таблица из 8 узких колонок (Специалист/Уровень/Ставка/
+  // Оплачено/Проведено/По данным центра/Не проведено/Баланс), и при любом
+  // языке рано или поздно находилась колонка, куда не влезало даже одно
+  // слово без переноса середины слова (например, "Начальный" в колонке
+  // "Уровень"). Вертикальная карточка не имеет такого ограничения вообще —
+  // у каждой строки вся ширина страницы. Заодно отвечает на прямой запрос:
+  // сколько оплачено деньгами, сколько реально потрачено на проведённые
+  // занятия и чему равна разница между ними (это и есть баланс).
+  let totalPaidMoney = 0;
+  let totalSpentMoney = 0;
 
   for (const row of report.rows) {
+    const paidMoney = row.paid * row.rate;
+    const spentMoney = paidMoney - row.balance; // = "сколько денег ушло на реально проведённые занятия"
+    totalPaidMoney += paidMoney;
+    totalSpentMoney += spentMoney;
     const notConducted = Math.max(row.paid - row.completed, 0);
-    const cells = [
-      row.trainerName,
-      row.levelName,
-      formatSum(row.rate, L.sum),
-      String(row.paid),
-      String(row.completed),
-      row.centerConducted != null ? String(row.centerConducted) : '—',
-      String(notConducted),
-      formatSumSigned(row.balance, L.sum),
-    ];
-    const thisRowH = rowHeightFor(doc, cells, colWidths, 9, rowH);
-    y = ensureSpace(doc, y, thisRowH, () => drawTableHeaderAt(MARGIN));
-    if (row.mismatch) doc.rect(MARGIN, y, pageWidth, thisRowH).fill('#FEF3C7');
+    const balanceColor = row.balance < 0 ? '#B91C1C' : row.balance > 0 ? '#15803D' : '#111827';
 
-    let x = MARGIN;
-    cells.forEach((val, i) => {
-      const c = cols[i];
-      text(doc, val, x + 4, y + 5, {
-        size: 9,
-        width: c.w - 8,
-        color: i === 7 ? (row.balance < 0 ? '#B91C1C' : row.balance > 0 ? '#15803D' : '#111827') : '#111827',
-      });
-      x += c.w;
+    y = ensureSpace(doc, y, 90);
+    if (row.mismatch) {
+      const bgH = 92;
+      doc.rect(MARGIN, y - 4, pageWidth, bgH).fill('#FEF3C7');
+    }
+
+    text(doc, `${row.trainerName} · ${row.levelName}`, MARGIN, y, { size: 12, bold: true, width: pageWidth - 140 });
+    textRight(doc, formatSumSigned(row.balance, L.sum), MARGIN + pageWidth, y, {
+      size: 12,
+      bold: true,
+      color: balanceColor,
     });
-    y += thisRowH;
+    y += 18;
+
+    text(doc, `${L.rate}: ${formatSum(row.rate, L.sum)}`, MARGIN, y, { size: 9, color: '#374151' });
+    y += 13;
+    text(
+      doc,
+      `${L.paid}: ${row.paid} ${L.sessionsUnit} · ${formatSum(paidMoney, L.sum)}`,
+      MARGIN,
+      y,
+      { size: 9, color: '#374151' },
+    );
+    y += 13;
+    let conductedLine = `${L.conducted}: ${row.completed} ${L.sessionsUnit}`;
+    if (row.centerConducted != null) {
+      conductedLine += ` (${L.centerConducted.toLowerCase()}: ${row.centerConducted})`;
+    }
+    text(doc, conductedLine, MARGIN, y, { size: 9, color: '#374151' });
+    y += 13;
+    text(doc, `${L.notConducted}: ${notConducted} ${L.sessionsUnit}`, MARGIN, y, { size: 9, color: '#374151' });
+    y += 13;
+    text(doc, `${L.spentOnConducted}: ${formatSum(spentMoney, L.sum)}`, MARGIN, y, {
+      size: 9,
+      bold: true,
+      color: '#374151',
+    });
+    y += 20;
   }
 
-  // Итоговая строка таблицы
-  y = ensureSpace(doc, y, rowH, () => drawTableHeaderAt(MARGIN));
-  doc.rect(MARGIN, y, pageWidth, rowH).fill('#F3F4F6');
-  text(doc, L.total, MARGIN + 4, y + 5, { size: 9, bold: true });
-  text(doc, formatSumSigned(report.total, L.sum), MARGIN + pageWidth - cols[7].w + 4, y + 5, {
-    size: 9,
-    bold: true,
-    width: cols[7].w - 8,
-  });
-  y += rowH + 20;
+  y += 6;
 
   // 3. Разбивка непроведённых занятий по причинам
   if (report.missedBreakdown.length) {
@@ -141,14 +136,16 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
     y += 10;
   }
 
-  // 4. Подробная таблица по дням
+  // 4. Подробная таблица по дням. Дата больше не повторяется на каждой
+  // строке (в один день обычно 2-3 занятия у разных специалистов) —
+  // показывается один раз на первую строку дня, дальше пусто до конца
+  // группы. Между днями — тонкая линия, между неделями — увеличенный отступ
+  // и линия потолще, чтобы месяц читался как настоящий журнал по неделям,
+  // а не сплошной список одинаковых на вид строк.
   y = ensureSpace(doc, y, 40);
   text(doc, L.dailyDetailTitle, MARGIN, y, { size: 11, bold: true });
   y += 18;
 
-  // "Статус" — самая частая причина переносов (длинные формулировки типа
-  // "Болезнь ребёнка (справки нет)", особенно на узбекском), поэтому у неё
-  // заметно больше места, чем у "Специалиста" (короткие имена).
   const dCols = [
     { label: L.date, w: 0.13 },
     { label: L.time, w: 0.13 },
@@ -160,7 +157,7 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
 
   const drawDailyHeaderAt = (startY) => {
     const labels = dCols.map((c) => c.label);
-    const headerH = rowHeightFor(doc, labels, dColWidths, 8, rowH);
+    const headerH = rowHeightFor(doc, labels, dColWidths, 8, 20);
     doc.rect(MARGIN, startY, pageWidth, headerH).fill('#F3F4F6');
     let x = MARGIN;
     for (const c of dCols) {
@@ -171,20 +168,44 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
   };
   y = drawDailyHeaderAt(y);
 
+  let prevDateKey = null;
+  let prevWeekKey = null;
+
   for (const s of sessions) {
     const trainer = s.actualTrainer || s.plannedTrainer;
+    const dateKey = new Date(s.date).getTime();
+    const weekKey = mondayOf(s.date);
+    const isNewDay = dateKey !== prevDateKey;
+    const isNewWeek = isNewDay && prevWeekKey !== null && weekKey !== prevWeekKey;
+
     const rowVals = [
-      formatDateShort(s.date),
+      isNewDay ? formatDateShort(s.date) : '',
       `${s.startTime}–${s.endTime}`,
       trainer ? trainer.name : '',
       L.statusLabels[s.status] || s.status,
       s.note || '',
     ];
-    const thisRowH = rowHeightFor(doc, rowVals, dColWidths, 8, rowH);
+    const thisRowH = rowHeightFor(doc, rowVals, dColWidths, 8, 20);
+    const extraGap = isNewWeek ? 10 : 0;
 
-    if (y + thisRowH > PAGE_BOTTOM) {
+    if (y + extraGap + thisRowH > PAGE_BOTTOM) {
       doc.addPage();
       y = drawDailyHeaderAt(MARGIN);
+    } else if (isNewWeek) {
+      doc
+        .moveTo(MARGIN, y + 4)
+        .lineTo(MARGIN + pageWidth, y + 4)
+        .lineWidth(1.2)
+        .strokeColor('#9CA3AF')
+        .stroke();
+      y += extraGap;
+    } else if (isNewDay && prevDateKey !== null) {
+      doc
+        .moveTo(MARGIN, y)
+        .lineTo(MARGIN + pageWidth, y)
+        .lineWidth(0.5)
+        .strokeColor('#E5E7EB')
+        .stroke();
     }
 
     let x = MARGIN;
@@ -194,17 +215,29 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
       x += c.w;
     });
     y += thisRowH;
+    prevDateKey = dateKey;
+    prevWeekKey = weekKey;
   }
   y += 20;
 
-  // 5. Итог крупно
-  y = ensureSpace(doc, y, 40);
-  text(doc, `${L.total}: ${formatSumSigned(report.total, L.sum)}`, MARGIN, y, {
-    size: 16,
+  // 5. Итог крупно — сумма, реально потраченная на проведённые занятия (а
+  // не остаточный баланс: баланс уже виден по каждому специалисту выше,
+  // здесь по прямому запросу — именно то, что фактически стоили занятия
+  // месяца). Оплачено и баланс показаны рядом мельче для контекста.
+  y = ensureSpace(doc, y, 70);
+  text(doc, `${L.paid}: ${formatSum(totalPaidMoney, L.sum)}`, MARGIN, y, { size: 10, color: '#374151' });
+  y += 16;
+  text(doc, `${L.spentOnConducted}: ${formatSum(totalSpentMoney, L.sum)}`, MARGIN, y, {
+    size: 18,
+    bold: true,
+  });
+  y += 26;
+  text(doc, `${L.balance}: ${formatSumSigned(report.total, L.sum)}`, MARGIN, y, {
+    size: 10,
     bold: true,
     color: report.total < 0 ? '#B91C1C' : report.total > 0 ? '#15803D' : '#111827',
   });
-  y += 50;
+  y += 40;
 
   // 6. Подписи
   y = ensureSpace(doc, y, 60);

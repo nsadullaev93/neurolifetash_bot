@@ -74,6 +74,8 @@ const dict = {
     centerAdmin: 'Администратор центра',
     signature: 'Подпись',
     sum: 'сум',
+    spentOnConducted: 'Потрачено на проведённые занятия',
+    sessionsUnit: 'занятий',
     reasons: {
       TRAINER_ABSENT: 'Специалист отсутствовал',
       CHILD_SICK_CERT: 'Болезнь ребёнка (справка есть)',
@@ -121,6 +123,8 @@ const dict = {
     centerAdmin: "Markaz ma'muri",
     signature: 'Imzo',
     sum: "so'm",
+    spentOnConducted: "O'tkazilgan mashg'ulotlarga sarflandi",
+    sessionsUnit: "mashg'ulot",
     reasons: {
       TRAINER_ABSENT: 'Mutaxassis kelmagan',
       CHILD_SICK_CERT: 'Bolaning kasalligi (spravka bor)',
@@ -175,6 +179,8 @@ const dict = {
     centerAdmin: '中心管理员',
     signature: '签名',
     sum: '苏姆',
+    spentOnConducted: '已完成课时花费',
+    sessionsUnit: '节',
     reasons: {
       TRAINER_ABSENT: '专家缺席',
       CHILD_SICK_CERT: '孩子生病(有证明)',
