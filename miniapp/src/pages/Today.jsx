@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import SessionCard from '../components/SessionCard';
 import Banner from '../components/Banner';
 import BalanceRow from '../components/BalanceRow';
+import LoadingScreen from '../components/LoadingScreen';
 
 export default function Today({ goToCalendar }) {
   const [data, setData] = useState(null);
@@ -42,7 +43,7 @@ export default function Today({ goToCalendar }) {
   }
 
   if (!data) {
-    return <div className="screen"><div className="center-loading">Загрузка…</div></div>;
+    return <div className="screen"><LoadingScreen /></div>;
   }
 
   return (

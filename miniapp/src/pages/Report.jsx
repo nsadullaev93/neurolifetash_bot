@@ -1,4 +1,5 @@
 import { useState, lazy, Suspense } from 'react';
+import LoadingScreen from '../components/LoadingScreen';
 
 const ReportReconciliation = lazy(() => import('./ReportReconciliation'));
 const ReportStats = lazy(() => import('./ReportStats'));
@@ -25,7 +26,7 @@ export default function Report({ canSeeMoney }) {
         </button>
       </div>
 
-      <Suspense fallback={<div className="center-loading">Загрузка…</div>}>
+      <Suspense fallback={<LoadingScreen />}>
         {subtab === 'reconciliation' && canSeeMoney && <ReportReconciliation />}
         {subtab === 'stats' && <ReportStats canSeeMoney={canSeeMoney} />}
         {subtab === 'diary' && <ReportDiary />}

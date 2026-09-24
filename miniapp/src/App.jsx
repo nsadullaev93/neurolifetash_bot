@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import BottomNav from './components/BottomNav';
 import Today from './pages/Today';
+import LoadingScreen from './components/LoadingScreen';
 import { api } from './api/client';
 
 const Calendar = lazy(() => import('./pages/Calendar'));
@@ -94,7 +95,7 @@ export default function App() {
   return (
     <div className="app">
       {!online && <div className="offline-banner">Нет соединения — данные могут быть неактуальны</div>}
-      <Suspense fallback={<div className="screen"><div className="center-loading">Загрузка…</div></div>}>
+      <Suspense fallback={<div className="screen"><LoadingScreen /></div>}>
         {tab === 'today' && <Today goToCalendar={() => setTab('calendar')} />}
         {tab === 'calendar' && <Calendar />}
         {tab === 'payments' && canSeeMoney && <Payments />}
