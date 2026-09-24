@@ -84,11 +84,6 @@ button, input, select {
   color: var(--text-muted);
 }
 
-.loading-icon {
-  font-size: 40px;
-  line-height: 1;
-}
-
 .spinner {
   width: 28px;
   height: 28px;
