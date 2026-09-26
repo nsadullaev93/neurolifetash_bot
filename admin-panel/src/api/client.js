@@ -80,6 +80,10 @@ export const api = {
   createClosedDay: (data) => request('/closed-days', { method: 'POST', body: JSON.stringify(data) }),
   deleteClosedDay: (id) => request(`/closed-days/${id}`, { method: 'DELETE' }),
 
+  getHolidays: () => request('/holidays'),
+  createHoliday: (data) => request('/holidays', { method: 'POST', body: JSON.stringify(data) }),
+  deleteHoliday: (id) => request(`/holidays/${id}`, { method: 'DELETE' }),
+
   getUsers: () => request('/users'),
   getAuditLog: () => request('/audit-log'),
 

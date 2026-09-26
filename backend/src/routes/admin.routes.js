@@ -42,6 +42,10 @@ router.get('/closed-days', adminController.listClosedDays);
 router.post('/closed-days', adminController.createClosedDay);
 router.delete('/closed-days/:id', adminController.deleteClosedDay);
 
+router.get('/holidays', adminController.listHolidays);
+router.post('/holidays', adminController.createHoliday);
+router.delete('/holidays/:id', adminController.deleteHoliday);
+
 router.get('/users', adminController.listUsers);
 router.get('/audit-log', adminController.listAuditLog);
 

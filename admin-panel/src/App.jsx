@@ -9,6 +9,7 @@ import Levels from './pages/Levels';
 import Schedule from './pages/Schedule';
 import Payments from './pages/Payments';
 import ClosedDays from './pages/ClosedDays';
+import Holidays from './pages/Holidays';
 import Reports from './pages/Reports';
 import GenerateMonth from './pages/GenerateMonth';
 import Backup from './pages/Backup';
@@ -33,6 +34,7 @@ export default function App() {
         {page === 'schedule' && <Schedule />}
         {page === 'payments' && <Payments />}
         {page === 'closedDays' && <ClosedDays />}
+        {page === 'holidays' && <Holidays />}
         {page === 'reports' && <Reports />}
         {page === 'generateMonth' && <GenerateMonth />}
         {page === 'backup' && <Backup />}

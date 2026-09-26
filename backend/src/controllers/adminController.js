@@ -5,6 +5,7 @@ const LevelModel = require('../models/Level');
 const TrainerModel = require('../models/Trainer');
 const ScheduleSlotModel = require('../models/ScheduleSlot');
 const ClosedDayModel = require('../models/ClosedDay');
+const HolidayModel = require('../models/Holiday');
 const PaymentModel = require('../models/Payment');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
@@ -415,6 +416,55 @@ async function deleteClosedDay(req, res, next) {
   }
 }
 
+// ---------- holidays ----------
+//
+// Отдельно от «Закрытых дней»: праздник заводится здесь, дальше идёт по
+// обычному сценарию бота §2.13 (вопрос «Центр работает?» за 2 дня и
+// накануне), если сразу не задать статус CLOSED. Нужно, потому что
+// автосид (config.fixedHolidays) покрывает только даты с фиксированным
+// числом — Рамазан-хайит/Курбан-хайит и любые другие плавающие даты
+// каждый год приходится добавлять вручную.
+
+async function listHolidays(req, res, next) {
+  try {
+    res.json(await HolidayModel.listAll());
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function createHoliday(req, res, next) {
+  try {
+    const { date, title, status } = req.body;
+    if (!title) return res.status(400).json({ error: 'Укажите title' });
+    const dateValue = parseStrictDateOnly(date);
+    if (!dateValue) return res.status(400).json({ error: 'date должен быть строкой YYYY-MM-DD' });
+
+    const holiday = await HolidayModel.upsertByDate(dateValue, title);
+
+    const finalStatus = ['OPEN', 'CLOSED'].includes(status) ? status : null;
+    if (finalStatus) {
+      await HolidayModel.setStatus(holiday.id, finalStatus);
+      if (finalStatus === 'CLOSED') {
+        await ClosedDayModel.createAndCancelSessions(dateValue, title);
+      }
+    }
+
+    res.status(201).json(await HolidayModel.findById(holiday.id));
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function deleteHoliday(req, res, next) {
+  try {
+    await prisma.holiday.delete({ where: { id: Number(req.params.id) } });
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ---------- users ----------
 
 async function listUsers(req, res, next) {
@@ -567,6 +617,9 @@ module.exports = {
   listClosedDays,
   createClosedDay,
   deleteClosedDay,
+  listHolidays,
+  createHoliday,
+  deleteHoliday,
   listUsers,
   generateMonthHandler,
   listAuditLog,
