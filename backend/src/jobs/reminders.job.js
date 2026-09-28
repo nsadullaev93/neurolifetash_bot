@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const { Markup } = require('telegraf');
+const prisma = require('../database/connection');
 const config = require('../config/default');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
@@ -377,6 +378,16 @@ function startReminderJobs(bot) {
   // (бесплатный тариф) не усыплял сервис после 15 минут без входящих запросов.
   // Интервал (не привязан к таймзоне) — сработает даже если RENDER_EXTERNAL_URL
   // недоступен локально: тогда задача просто не регистрируется.
+  //
+  // Баг, найденный 28.09.2026: /api/health — статический ответ, к БД не
+  // обращается вообще. Self-ping держал не спящим только процесс Render, а
+  // Neon (отдельный бесплатный тариф) всё равно засыпал сам по себе, если
+  // никто из семьи не открывал приложение (по выходным занятий нет, Пн–Пт).
+  // В понедельник первый же per-minute cron-тик наткнулся на холодную БД —
+  // чат-чекин на занятие 16:00–16:40 разослался только в 17:13 вместо
+  // 16:45 (задача пережила задержку благодаря диапазону дат в запросе, §14.3,
+  // но 33 минуты — это заметно дольше обычного «пробуждения» Neon).
+  // Добавлен отдельный лёгкий keep-alive-запрос к БД тем же интервалом.
   if (config.externalUrl && config.selfPingEnabled) {
     cron.schedule('*/10 * * * *', async () => {
       try {
@@ -391,6 +402,16 @@ function startReminderJobs(bot) {
     console.log(`Self-ping включён: каждые 10 минут → ${config.externalUrl}/api/health`);
   } else {
     console.log('Self-ping отключён (нет RENDER_EXTERNAL_URL/SELF_URL или SELF_PING_ENABLED=false)');
+  }
+
+  if (config.selfPingEnabled) {
+    cron.schedule('*/10 * * * *', async () => {
+      try {
+        await prisma.family.findFirst({ select: { id: true } });
+      } catch (err) {
+        console.error('DB keep-alive не удался:', err.message);
+      }
+    });
   }
 }
 
