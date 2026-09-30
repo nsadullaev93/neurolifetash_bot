@@ -2,7 +2,7 @@ const { Markup } = require('telegraf');
 const config = require('../config/default');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
-const { todayDateOnly, formatDateRu, nowYearMonth, monthName } = require('../utils/date');
+const { todayDateOnly, formatDateRu, nowYearMonth, monthName, currentHM } = require('../utils/date');
 const { formatMoney, formatMoneySigned } = require('../utils/money');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
 const { markPaidSeparately, markCarriedOver } = require('../services/settlement.service');
@@ -969,18 +969,64 @@ function setupBot(bot) {
     );
   });
 
-  // «Сегодня не идём» — из первого сообщения дня, отмечает одним нажатием
-  // все ещё не отмеченные занятия сегодня (ТЗ v2, §7.1).
+  // Занятия сегодня, которые «Сегодня не идём» вправе трогать — только ещё
+  // НЕ НАЧАВШИЕСЯ (startTime строго позже текущего времени) и всё ещё
+  // PLANNED. Баг, найденный 30.09.2026: кнопку нажали в 16:56, пока одно
+  // занятие уже шло (16:40–17:20), а следующее ещё не началось (17:20–18:00)
+  // — оба молча стали «ребёнок отсутствовал» одним нажатием, включая уже
+  // идущее занятие, у которого даже чекин ещё не должен был прийти. Теперь
+  // такие занятия (начавшиеся, но не отмеченные) кнопка не трогает вообще —
+  // ими управляют индивидуально, обычным чекином/календарём.
+  function stillUpcoming(sessions) {
+    const hm = currentHM();
+    return sessions.filter((s) => s.status === 'PLANNED' && s.startTime > hm);
+  }
+
+  // «Сегодня не идём» — из первого сообщения дня. Раньше отмечало одним
+  // нажатием сразу все ещё не отмеченные занятия дня без подтверждения —
+  // теперь сначала показывает, сколько занятий и какие именно затронет, и
+  // ждёт явного подтверждения (ТЗ v2, §7.1).
   bot.action('checkin_bulk_absent', async (ctx) => {
-    const { status, user } = await resolveAccess(ctx.from);
+    const { status } = await resolveAccess(ctx.from);
     if (status !== 'approved') return ctx.answerCbQuery();
 
     const today = todayDateOnly();
     const sessions = await SessionModel.listForDate(today);
-    const planned = sessions.filter((s) => s.status === 'PLANNED');
+    const upcoming = stillUpcoming(sessions);
+
+    if (upcoming.length === 0) {
+      return ctx.answerCbQuery('Незапланированных ещё занятий сегодня не осталось', { show_alert: true });
+    }
+
+    const list = upcoming.map((s) => `${s.startTime} — ${s.plannedTrainer.name}`).join(', ');
+    await ctx.reply(
+      `Отметить «ребёнок отсутствовал» на ${upcoming.length} занятий, которые ещё не начались: ${list}?`,
+      Markup.inlineKeyboard([
+        [Markup.button.callback('Да, все не идём', 'checkin_bulk_absent_confirm')],
+        [Markup.button.callback('Отмена', 'checkin_bulk_absent_cancel')],
+      ]),
+    );
+    await ctx.answerCbQuery();
+  });
+
+  bot.action('checkin_bulk_absent_cancel', async (ctx) => {
+    await ctx.editMessageText('Отменено — статусы занятий не менялись.');
+    await ctx.answerCbQuery();
+  });
+
+  bot.action('checkin_bulk_absent_confirm', async (ctx) => {
+    const { status, user } = await resolveAccess(ctx.from);
+    if (status !== 'approved') return ctx.answerCbQuery();
+
+    // Пересчитываем заново на момент подтверждения (не то, что было при
+    // первом нажатии) — время могло пройти, и какое-то занятие уже могло
+    // начаться или быть отмечено иначе за это время.
+    const today = todayDateOnly();
+    const sessions = await SessionModel.listForDate(today);
+    const upcoming = stillUpcoming(sessions);
     const member = await FamilyMemberModel.findByUserId(user.id);
 
-    for (const s of planned) {
+    for (const s of upcoming) {
       const updated = await SessionModel.update(s.id, {
         status: 'CHILD_ABSENT',
         markedByUserId: user.id,
@@ -995,7 +1041,8 @@ function setupBot(bot) {
       );
     }
 
-    await ctx.answerCbQuery(`Отмечено: сегодня не идём (${planned.length})`);
+    await ctx.editMessageText(`Отмечено: сегодня не идём (${upcoming.length})`);
+    await ctx.answerCbQuery();
   });
 
   bot.help((ctx) => {
