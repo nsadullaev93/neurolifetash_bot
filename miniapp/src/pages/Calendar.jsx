@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { api } from '../api/client';
 import SessionCard from '../components/SessionCard';
+import { cachedMonth, loadMonth } from '../utils/calendarData';
 import { RU_MONTHS_NOM, RU_WEEKDAYS_SHORT, isoWeekday, dateKey } from '../utils/format';
 
 const MISSED_STATUSES = ['TRAINER_ABSENT', 'CHILD_SICK_CERT', 'CHILD_SICK_NO_CERT', 'CHILD_ABSENT', 'RESCHEDULED'];
@@ -23,37 +24,40 @@ export default function Calendar() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [sessions, setSessions] = useState([]);
-  const [trainers, setTrainers] = useState([]);
-  const [closedHolidayKeys, setClosedHolidayKeys] = useState(new Set());
-  const [todayKey, setTodayKey] = useState('');
+  // уже загруженный месяц (в т. ч. подгруженный в фоне после входа) — сразу, свежие данные — поверх
+  const monthKey = `${year}-${month}`;
+  const currentKey = useRef(monthKey);
+  currentKey.current = monthKey;
+  const [data, setData] = useState(() => {
+    const hit = cachedMonth(year, month);
+    return hit ? { ...hit, monthKey } : null;
+  });
   const [selectedDay, setSelectedDay] = useState(null);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
 
   const load = useCallback(async () => {
+    const key = `${year}-${month}`;
     try {
       setError('');
-      const [monthData, trainersList, todayData, holidays] = await Promise.all([
-        api.getMonthSessions(year, month),
-        api.getTrainers(),
-        api.getToday(),
-        api.getHolidays(),
-      ]);
-      setSessions(monthData.sessions);
-      setTrainers(trainersList);
-      setTodayKey(todayData.date.slice(0, 10));
-      // Праздник в календаре — только подтверждённый закрытым (§2.13): пока
-      // статус ещё UNKNOWN/OPEN, день красится как обычный рабочий/будущий.
-      setClosedHolidayKeys(new Set(holidays.filter((h) => h.status === 'CLOSED').map((h) => h.date.slice(0, 10))));
+      const fresh = await loadMonth(year, month);
+      if (currentKey.current === key) setData({ ...fresh, monthKey: key }); // пока грузились, месяц могли переключить
     } catch (err) {
       setError(err.message);
     }
   }, [year, month]);
 
   useEffect(() => {
+    const hit = cachedMonth(year, month);
+    setData(hit ? { ...hit, monthKey: `${year}-${month}` } : null);
     load();
   }, [load]);
+
+  const loaded = data?.monthKey === monthKey;
+  const sessions = loaded ? data.sessions : [];
+  const trainers = data?.trainers || [];
+  const closedHolidayKeys = loaded ? data.closedHolidayKeys : new Set();
+  const todayKey = data?.todayKey || '';
 
   const sessionsByDay = useMemo(() => {
     const map = {};
@@ -112,7 +116,8 @@ export default function Calendar() {
         <button className="icon-btn" onClick={nextMonth}>›</button>
       </div>
 
-      <div className="calendar-grid">
+      {/* сетка — сразу; пока нет данных месяца, она бледная (а не «серая — выходной») */}
+      <div className={loaded ? 'calendar-grid' : 'calendar-grid loading'}>
         {RU_WEEKDAYS_SHORT.map((w) => (
           <div key={w} className="calendar-weekday">{w}</div>
         ))}
@@ -145,7 +150,9 @@ export default function Calendar() {
       {selectedDay && (
         <>
           <div className="section-title">{selectedDay} {RU_MONTHS_NOM[month - 1].toLowerCase()}</div>
-          {selectedSessions.length === 0 ? (
+          {!loaded ? (
+            <div className="empty-state">Загрузка…</div>
+          ) : selectedSessions.length === 0 ? (
             <div className="empty-state">Занятий в этот день нет</div>
           ) : (
             selectedSessions.map((s) => (

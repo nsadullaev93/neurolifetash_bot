@@ -660,3 +660,6 @@ button, input, select {
 .switch.on .switch-knob {
   left: 23px;
 }
+
+/* календарь: данные месяца ещё грузятся — сетка бледная, не «серая = выходной» */
+.calendar-grid.loading .calendar-day { opacity: 0.45; }

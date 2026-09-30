@@ -3,6 +3,7 @@ import BottomNav from './components/BottomNav';
 import Today from './pages/Today';
 import LoadingScreen from './components/LoadingScreen';
 import { api } from './api/client';
+import { warmCalendar } from './utils/calendarData';
 
 const Calendar = lazy(() => import('./pages/Calendar'));
 const Payments = lazy(() => import('./pages/Payments'));
@@ -78,6 +79,8 @@ export default function App() {
       const data = await api.authTelegram();
       setMe(data);
       applyTheme(data.theme);
+      // календарь (код экрана и текущий месяц) — в фоне, пока смотрят «Сегодня»
+      setTimeout(warmCalendar, 800);
     } catch {
       /* показывается уже в самих экранах при их собственных запросах */
     }
