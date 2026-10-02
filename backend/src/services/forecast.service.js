@@ -23,12 +23,7 @@ async function getCarryAdjustments(year, month) {
   return byTrainer;
 }
 
-// Plan = number of (day, slot) matches from the schedule template in the
-// given month, excluding closed days and days paused for that specific
-// specialist (отпуск и т.п. — §2.7.1). This is the "план по графику" used
-// both by the payment calculator (2.7) and the reconciliation warning (2.6).
-async function computePlanByTrainer(year, month) {
-  const trainers = await TrainerModel.listAll({ onlyActive: true });
+async function monthPlanContext(year, month) {
   const closedDays = await ClosedDayModel.listForMonth(year, month);
   const closedSet = new Set(closedDays.map((c) => c.date.toISOString().slice(0, 10)));
   const monthDates = getMonthDateList(year, month);
@@ -38,22 +33,48 @@ async function computePlanByTrainer(year, month) {
     if (!pausesByTrainer.has(p.trainerId)) pausesByTrainer.set(p.trainerId, []);
     pausesByTrainer.get(p.trainerId).push(p);
   }
+  return { closedSet, monthDates, pausesByTrainer };
+}
 
-  return trainers.map((trainer) => {
-    const activeSlots = trainer.slots.filter((s) => s.isActive);
-    const trainerPauses = pausesByTrainer.get(trainer.id) || [];
-    let plan = 0;
+// Plan = number of (day, slot) matches from the schedule template in the
+// given month, excluding closed days and days paused for that specific
+// specialist (отпуск и т.п. — §2.7.1).
+function planForTrainer(trainer, { closedSet, monthDates, pausesByTrainer }) {
+  const activeSlots = trainer.slots.filter((s) => s.isActive);
+  const trainerPauses = pausesByTrainer.get(trainer.id) || [];
+  let plan = 0;
 
-    for (const date of monthDates) {
-      const key = date.toISOString().slice(0, 10);
-      if (closedSet.has(key)) continue;
-      if (isPausedOn(date, trainerPauses)) continue;
-      const weekday = isoWeekday(date);
-      plan += activeSlots.filter((s) => s.weekday === weekday).length;
-    }
+  for (const date of monthDates) {
+    const key = date.toISOString().slice(0, 10);
+    if (closedSet.has(key)) continue;
+    if (isPausedOn(date, trainerPauses)) continue;
+    const weekday = isoWeekday(date);
+    plan += activeSlots.filter((s) => s.weekday === weekday).length;
+  }
 
-    return { trainer, plan };
-  });
+  return plan;
+}
+
+// "План по графику" используется и калькулятором оплаты (2.7), и
+// напоминанием 1-7 числа — оба смотрят ВПЕРЁД, поэтому деактивированный
+// специалист из них правильно исчезает (платить/напоминать не о ком).
+async function computePlanByTrainer(year, month) {
+  const trainers = await TrainerModel.listAll({ onlyActive: true });
+  const ctx = await monthPlanContext(year, month);
+  return trainers.map((trainer) => ({ trainer, plan: planForTrainer(trainer, ctx) }));
+}
+
+// Вариант для сверки/отчёта за КОНКРЕТНЫЙ (обычно уже прошедший) месяц:
+// включает текущих активных специалистов плюс любого, кто сейчас
+// деактивирован, но указан в extraTrainerIds (т.е. реально имел в этом
+// месяце занятия/оплаты/сверку). Без этого отключение специалиста задним
+// числом стирало его историю из уже закрытых месяцев — регрессия
+// 03.10.2026, см. основную заметку §20.
+async function computePlanByTrainerForMonth(year, month, extraTrainerIds) {
+  const allTrainers = await TrainerModel.listAll();
+  const relevant = allTrainers.filter((t) => t.isActive || extraTrainerIds.has(t.id));
+  const ctx = await monthPlanContext(year, month);
+  return relevant.map((trainer) => ({ trainer, plan: planForTrainer(trainer, ctx) }));
 }
 
 async function calculateForecast(year, month) {
@@ -134,6 +155,7 @@ async function getUnconfirmedHolidayWarnings(year, month) {
 
 module.exports = {
   computePlanByTrainer,
+  computePlanByTrainerForMonth,
   calculateForecast,
   calculatePaymentStatus,
   getUnconfirmedHolidayWarnings,

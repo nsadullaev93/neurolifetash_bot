@@ -1,7 +1,18 @@
 const SessionModel = require('../models/Session');
 const PaymentModel = require('../models/Payment');
 const SettlementModel = require('../models/Settlement');
-const { computePlanByTrainer } = require('./forecast.service');
+const { computePlanByTrainerForMonth } = require('./forecast.service');
+
+// Специалисты, у которых есть реальные занятия/оплата/сверка именно в этом
+// месяце — нужны, чтобы деактивация специалиста СЕЙЧАС не стирала его из
+// сверки за уже закрытый месяц (см. computePlanByTrainerForMonth).
+function historicalTrainerIds(sessions, payments, settlements) {
+  const ids = new Set();
+  for (const s of sessions) ids.add(SessionModel.effectiveTrainerId(s));
+  for (const p of payments) ids.add(p.trainerId);
+  for (const s of settlements) ids.add(s.trainerId);
+  return ids;
+}
 
 // Core formula (see TZ v2, §2.5, §2.10, §2.12):
 //   P = paidSessions (sum of all MonthlyPayment rows this month, or 0)
@@ -10,10 +21,15 @@ const { computePlanByTrainer } = require('./forecast.service');
 //   billable = agreedConducted (если центр и родитель согласовали другое число), иначе C
 //   Balance = (P - billable) * S
 async function calculateMonthlyReconciliation(year, month) {
-  const planByTrainer = await computePlanByTrainer(year, month);
+  const sessions = await SessionModel.listForMonth(year, month);
   const payments = await PaymentModel.listForMonth(year, month);
   const settlements = await SettlementModel.listForMonth(year, month);
   const settlementByTrainer = new Map(settlements.map((s) => [s.trainerId, s]));
+  const planByTrainer = await computePlanByTrainerForMonth(
+    year,
+    month,
+    historicalTrainerIds(sessions, payments, settlements),
+  );
 
   // За месяц одному специалисту может быть несколько оплат (ТЗ v2, §2.10):
   // P — их сумма, S — ставка-снимок ПЕРВОЙ по времени оплаты месяца.
