@@ -10,7 +10,12 @@ const HolidayModel = require('../models/Holiday');
 const PaymentModel = require('../models/Payment');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
-const { generateMonth, regenerateFromDate } = require('../services/monthGenerator.service');
+const {
+  generateMonth,
+  regenerateFromDate,
+  hideSessionsForPause,
+  restoreSessionsAfterPauseEnd,
+} = require('../services/monthGenerator.service');
 const { calculateMonthlyReconciliation } = require('../services/reconciliation.service');
 const { calculateForecast } = require('../services/forecast.service');
 const { getMonthlyReport, exportMonthlyXlsx } = require('../services/report.service');
@@ -167,10 +172,12 @@ async function deleteTrainer(req, res, next) {
 
 // ---------- trainer pauses (отпуск и т.п. — пауза оплаты на период) ----------
 //
-// Не трогает занятия в расписании/календаре — только "план по графику"
-// (forecast.service.js), от которого зависят калькулятор оплаты и
-// напоминание 1-7 числа. Нужно, когда специалист в отпуске: семья платит
-// за остальных, а за него никто не требует оплату и не напоминает о долге.
+// Обнуляет "план по графику" (forecast.service.js) на период паузы — от
+// него зависят калькулятор оплаты и напоминание 1-7 числа, так что за
+// специалиста в отпуске никто не требует оплату и не напоминает о долге.
+// Создание/удаление паузы (02.10.2026) также сразу скрывает/возвращает его
+// занятия в расписании и календаре — см. monthGenerator.service.js
+// (hideSessionsForPause/restoreSessionsAfterPauseEnd).
 
 async function listTrainerPauses(req, res, next) {
   try {
@@ -206,6 +213,7 @@ async function createTrainerPause(req, res, next) {
       note: note || null,
     });
     await logAudit('TrainerPause', created.id, 'create', null, created);
+    await hideSessionsForPause(created.trainerId, created.fromDate, created.toDate);
 
     res.status(201).json(created);
   } catch (err) {
@@ -215,7 +223,12 @@ async function createTrainerPause(req, res, next) {
 
 async function deleteTrainerPause(req, res, next) {
   try {
+    const pause = await TrainerPauseModel.findById(req.params.id);
+    if (!pause) return res.status(404).json({ error: 'Пауза не найдена' });
+
     await TrainerPauseModel.remove(req.params.id);
+    await restoreSessionsAfterPauseEnd(pause.trainerId, pause.fromDate, pause.toDate);
+
     res.status(204).end();
   } catch (err) {
     next(err);

@@ -20,6 +20,10 @@ async function listOverlappingMonth(year, month) {
   });
 }
 
+async function findById(id) {
+  return prisma.trainerPause.findUnique({ where: { id: Number(id) } });
+}
+
 async function create(data) {
   return prisma.trainerPause.create({ data, include: { trainer: true } });
 }
@@ -28,4 +32,4 @@ async function remove(id) {
   return prisma.trainerPause.delete({ where: { id: Number(id) } });
 }
 
-module.exports = { listAll, listOverlappingMonth, create, remove };
+module.exports = { listAll, listOverlappingMonth, findById, create, remove };
