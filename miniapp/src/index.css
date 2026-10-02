@@ -583,6 +583,19 @@ button, input, select {
   font-size: 12px;
 }
 
+.history-month-row td {
+  background: var(--gray-bg);
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.history-total-row td {
+  font-weight: 700;
+  border-bottom: 2px solid var(--border);
+}
+
 .error-box {
   background: var(--red-bg);
   color: var(--red);

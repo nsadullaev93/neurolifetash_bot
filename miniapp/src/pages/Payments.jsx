@@ -1,6 +1,21 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Fragment } from 'react';
 import { api } from '../api/client';
 import { formatMoney, RU_MONTHS_NOM } from '../utils/format';
+
+// Группирует плоскую историю оплат (уже отсортированную backend'ом по
+// убыванию year/month) по месяцам с итоговой суммой — плоский список было
+// сложно визуально разделить на месяцы (по просьбе пользователя, 02.10.2026).
+function groupHistoryByMonth(history) {
+  const map = new Map();
+  for (const p of history) {
+    const key = `${p.year}-${p.month}`;
+    if (!map.has(key)) map.set(key, { year: p.year, month: p.month, items: [], total: 0 });
+    const group = map.get(key);
+    group.items.push(p);
+    group.total += p.totalAmount;
+  }
+  return Array.from(map.values()).sort((a, b) => b.year - a.year || b.month - a.month);
+}
 
 const now = new Date();
 // Скидка по усмотрению администрации центра — доступна только когда за
@@ -307,23 +322,32 @@ export default function Payments() {
           <table className="table">
             <thead>
               <tr>
-                <th>Месяц</th>
                 <th>Специалист</th>
                 <th>Оплачено</th>
                 <th>Сумма</th>
               </tr>
             </thead>
             <tbody>
-              {history.map((p) => (
-                <tr key={p.id}>
-                  <td>{RU_MONTHS_NOM[p.month - 1].slice(0, 3)} {p.year}</td>
-                  <td>{p.trainerName}</td>
-                  <td>{p.paidSessions}</td>
-                  <td>
-                    {formatMoney(p.totalAmount)}
-                    {p.discountApplied && <span title="Применена скидка 10%"> 🏷️</span>}
-                  </td>
-                </tr>
+              {groupHistoryByMonth(history).map((group) => (
+                <Fragment key={`${group.year}-${group.month}`}>
+                  <tr className="history-month-row">
+                    <td colSpan={3}>{RU_MONTHS_NOM[group.month - 1]} {group.year}</td>
+                  </tr>
+                  {group.items.map((p) => (
+                    <tr key={p.id}>
+                      <td>{p.trainerName}</td>
+                      <td>{p.paidSessions}</td>
+                      <td>
+                        {formatMoney(p.totalAmount)}
+                        {p.discountApplied && <span title="Применена скидка 10%"> 🏷️</span>}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="history-total-row">
+                    <td colSpan={2}>Итого за месяц</td>
+                    <td>{formatMoney(group.total)}</td>
+                  </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>
