@@ -6,6 +6,7 @@ const HolidayModel = require('../models/Holiday');
 const TrainerPauseModel = require('../models/TrainerPause');
 const { getMonthDateList, isoWeekday, prevMonthOf } = require('../utils/date');
 const { isPausedOn } = require('../utils/trainerPause');
+const { computePaymentStatus } = require('../utils/paymentStatus');
 
 // Перенесённые расчёты ПРЕДЫДУЩЕГО месяца (ТЗ v2, §2.7, §2.9). Переплата
 // (balance > 0) уменьшает "к оплате", доплата, которую решили добавить
@@ -96,9 +97,7 @@ async function calculatePaymentStatus(year, month) {
 
   const rows = forecast.breakdown.map((b) => {
     const paidAmount = paidByTrainer.get(b.trainerId) || 0;
-    let status = 'PAID';
-    if (paidAmount === 0) status = 'UNPAID';
-    else if (paidAmount < b.amount) status = 'PARTIAL';
+    const status = computePaymentStatus(b.amount, paidAmount);
     return {
       trainerId: b.trainerId,
       trainerName: b.trainerName,
