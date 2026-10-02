@@ -144,7 +144,23 @@ model Trainer {
   actualSessions  Session[]        @relation("ActualTrainer")
   payments        MonthlyPayment[]
   settlements     Settlement[]
+  pauses          TrainerPause[]
   createdAt       DateTime         @default(now())
+}
+
+// Пауза оплаты специалиста на период (отпуск и т.п.) — на эти дни «план по
+// графику» (§2.6/§2.7) для этого специалиста считается нулевым, поэтому
+// калькулятор оплаты и напоминание 1-7 числа не требуют оплаты и не
+// показывают долг за этот период. Не отменяет и не трогает сами занятия в
+// расписании/календаре — только ожидаемую сумму к оплате.
+model TrainerPause {
+  id        Int       @id @default(autoincrement())
+  trainerId Int
+  trainer   Trainer   @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  fromDate  DateTime  @db.Date
+  toDate    DateTime? @db.Date // null = бессрочно, до ручного завершения
+  note      String?
+  createdAt DateTime  @default(now())
 }
 
 model ScheduleSlot {

@@ -46,6 +46,10 @@ router.get('/holidays', adminController.listHolidays);
 router.post('/holidays', adminController.createHoliday);
 router.delete('/holidays/:id', adminController.deleteHoliday);
 
+router.get('/trainer-pauses', adminController.listTrainerPauses);
+router.post('/trainer-pauses', adminController.createTrainerPause);
+router.delete('/trainer-pauses/:id', adminController.deleteTrainerPause);
+
 router.get('/users', adminController.listUsers);
 router.get('/audit-log', adminController.listAuditLog);
 

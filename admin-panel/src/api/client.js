@@ -84,6 +84,10 @@ export const api = {
   createHoliday: (data) => request('/holidays', { method: 'POST', body: JSON.stringify(data) }),
   deleteHoliday: (id) => request(`/holidays/${id}`, { method: 'DELETE' }),
 
+  getTrainerPauses: () => request('/trainer-pauses'),
+  createTrainerPause: (data) => request('/trainer-pauses', { method: 'POST', body: JSON.stringify(data) }),
+  deleteTrainerPause: (id) => request(`/trainer-pauses/${id}`, { method: 'DELETE' }),
+
   getUsers: () => request('/users'),
   getAuditLog: () => request('/audit-log'),
 

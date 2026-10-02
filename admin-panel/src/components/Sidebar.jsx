@@ -10,6 +10,7 @@ const PAGES = [
   { id: 'payments', label: 'Оплаты' },
   { id: 'closedDays', label: 'Закрытые дни' },
   { id: 'holidays', label: 'Праздники' },
+  { id: 'trainerPauses', label: 'Отпуска специалистов' },
   { id: 'reports', label: 'Отчёты' },
   { id: 'generateMonth', label: 'Генерация месяца' },
   { id: 'backup', label: 'Резервная копия' },

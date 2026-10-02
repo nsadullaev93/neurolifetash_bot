@@ -10,6 +10,7 @@ import Schedule from './pages/Schedule';
 import Payments from './pages/Payments';
 import ClosedDays from './pages/ClosedDays';
 import Holidays from './pages/Holidays';
+import TrainerPauses from './pages/TrainerPauses';
 import Reports from './pages/Reports';
 import GenerateMonth from './pages/GenerateMonth';
 import Backup from './pages/Backup';
@@ -35,6 +36,7 @@ export default function App() {
         {page === 'payments' && <Payments />}
         {page === 'closedDays' && <ClosedDays />}
         {page === 'holidays' && <Holidays />}
+        {page === 'trainerPauses' && <TrainerPauses />}
         {page === 'reports' && <Reports />}
         {page === 'generateMonth' && <GenerateMonth />}
         {page === 'backup' && <Backup />}

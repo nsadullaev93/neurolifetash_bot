@@ -3,6 +3,7 @@ const prisma = require('../database/connection');
 const config = require('../config/default');
 const LevelModel = require('../models/Level');
 const TrainerModel = require('../models/Trainer');
+const TrainerPauseModel = require('../models/TrainerPause');
 const ScheduleSlotModel = require('../models/ScheduleSlot');
 const ClosedDayModel = require('../models/ClosedDay');
 const HolidayModel = require('../models/Holiday');
@@ -158,6 +159,63 @@ async function updateTrainer(req, res, next) {
 async function deleteTrainer(req, res, next) {
   try {
     await TrainerModel.remove(req.params.id);
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ---------- trainer pauses (отпуск и т.п. — пауза оплаты на период) ----------
+//
+// Не трогает занятия в расписании/календаре — только "план по графику"
+// (forecast.service.js), от которого зависят калькулятор оплаты и
+// напоминание 1-7 числа. Нужно, когда специалист в отпуске: семья платит
+// за остальных, а за него никто не требует оплату и не напоминает о долге.
+
+async function listTrainerPauses(req, res, next) {
+  try {
+    res.json(await TrainerPauseModel.listAll());
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function createTrainerPause(req, res, next) {
+  try {
+    const { trainerId, fromDate, toDate, note } = req.body;
+    if (!trainerId || !fromDate) {
+      return res.status(400).json({ error: 'Укажите trainerId и fromDate' });
+    }
+    const from = parseStrictDateOnly(fromDate);
+    if (!from) return res.status(400).json({ error: 'fromDate должен быть строкой YYYY-MM-DD' });
+
+    let to = null;
+    if (toDate) {
+      to = parseStrictDateOnly(toDate);
+      if (!to) return res.status(400).json({ error: 'toDate должен быть строкой YYYY-MM-DD' });
+      if (to < from) return res.status(400).json({ error: 'toDate не может быть раньше fromDate' });
+    }
+
+    const trainer = await TrainerModel.findById(trainerId);
+    if (!trainer) return res.status(400).json({ error: 'Специалист не найден' });
+
+    const created = await TrainerPauseModel.create({
+      trainerId: Number(trainerId),
+      fromDate: from,
+      toDate: to,
+      note: note || null,
+    });
+    await logAudit('TrainerPause', created.id, 'create', null, created);
+
+    res.status(201).json(created);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function deleteTrainerPause(req, res, next) {
+  try {
+    await TrainerPauseModel.remove(req.params.id);
     res.status(204).end();
   } catch (err) {
     next(err);
@@ -620,6 +678,9 @@ module.exports = {
   listHolidays,
   createHoliday,
   deleteHoliday,
+  listTrainerPauses,
+  createTrainerPause,
+  deleteTrainerPause,
   listUsers,
   generateMonthHandler,
   listAuditLog,

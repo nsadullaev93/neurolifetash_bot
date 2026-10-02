@@ -3,7 +3,9 @@ const ClosedDayModel = require('../models/ClosedDay');
 const SettlementModel = require('../models/Settlement');
 const PaymentModel = require('../models/Payment');
 const HolidayModel = require('../models/Holiday');
+const TrainerPauseModel = require('../models/TrainerPause');
 const { getMonthDateList, isoWeekday, prevMonthOf } = require('../utils/date');
+const { isPausedOn } = require('../utils/trainerPause');
 
 // Перенесённые расчёты ПРЕДЫДУЩЕГО месяца (ТЗ v2, §2.7, §2.9). Переплата
 // (balance > 0) уменьшает "к оплате", доплата, которую решили добавить
@@ -21,21 +23,30 @@ async function getCarryAdjustments(year, month) {
 }
 
 // Plan = number of (day, slot) matches from the schedule template in the
-// given month, excluding closed days. This is the "план по графику" used
+// given month, excluding closed days and days paused for that specific
+// specialist (отпуск и т.п. — §2.7.1). This is the "план по графику" used
 // both by the payment calculator (2.7) and the reconciliation warning (2.6).
 async function computePlanByTrainer(year, month) {
   const trainers = await TrainerModel.listAll({ onlyActive: true });
   const closedDays = await ClosedDayModel.listForMonth(year, month);
   const closedSet = new Set(closedDays.map((c) => c.date.toISOString().slice(0, 10)));
   const monthDates = getMonthDateList(year, month);
+  const pauses = await TrainerPauseModel.listOverlappingMonth(year, month);
+  const pausesByTrainer = new Map();
+  for (const p of pauses) {
+    if (!pausesByTrainer.has(p.trainerId)) pausesByTrainer.set(p.trainerId, []);
+    pausesByTrainer.get(p.trainerId).push(p);
+  }
 
   return trainers.map((trainer) => {
     const activeSlots = trainer.slots.filter((s) => s.isActive);
+    const trainerPauses = pausesByTrainer.get(trainer.id) || [];
     let plan = 0;
 
     for (const date of monthDates) {
       const key = date.toISOString().slice(0, 10);
       if (closedSet.has(key)) continue;
+      if (isPausedOn(date, trainerPauses)) continue;
       const weekday = isoWeekday(date);
       plan += activeSlots.filter((s) => s.weekday === weekday).length;
     }
