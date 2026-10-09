@@ -1,0 +1,24 @@
+name: Keep backend awake
+
+# External ping (not from the Render instance itself) for the Render free-tier
+# backend — self-ping/DB keep-alive inside the process (backend/src/jobs/reminders.job.js)
+# can't help once Render has fully stopped the process, since there's nothing
+# left to send the ping. An external request is what actually wakes it back up
+# (see Obsidian notes, incident 09.10.2026 — restarts without any deploy, ~1-2
+# days apart, found via Render's raw Logs tab, not Deploys/Events).
+#
+# Note: GitHub auto-disables scheduled workflows on a repo after 60 days with
+# no commits — if pings stop working, check Actions tab for a disabled warning
+# and re-enable manually (a push/re-enable resets the 60-day clock).
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/health
+        run: curl -fsS --max-time 20 https://neurolifetash-backend.onrender.com/api/health
