@@ -1,6 +1,5 @@
 const cron = require('node-cron');
 const { Markup } = require('telegraf');
-const prisma = require('../database/connection');
 const config = require('../config/default');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
@@ -39,6 +38,22 @@ const {
 async function moneyAudienceUsers() {
   const members = await FamilyMemberModel.listAll();
   return members.filter((m) => m.canSeeMoney && m.paymentPings).map((m) => m.user);
+}
+
+// Neon free-тариф считает CU-часы, пока compute НЕ приостановлен — любой
+// запрос к БД сбрасывает её 5-минутный таймер автосуспенда. Чат-чекины и
+// напоминание о неотмеченных занятиях раньше дёргали БД каждую минуту
+// круглосуточно без остановки — это держало compute активным 24/7 и само
+// по себе исчерпывало месячный лимит (100 CU-часов = ~16-17 дней непрерывной
+// работы при 0.25 CU), даже без отдельного keep-alive-пинга. 19.10.2026:
+// лимит превышен, Neon заблокировала все запросы. Вместо круглосуточного
+// опроса — "тихие часы" (ночью и рано утром ни занятий, ни разумного времени
+// напоминаний не бывает): обе per-minute задачи теперь выходят ДО любого
+// обращения к БД вне окна 08:00–21:00 по Ташкенту, оставляя Neon спать
+// большую часть суток вместо вечного бодрствования.
+function isActiveHours() {
+  const hour = nowTz().hour();
+  return hour >= 8 && hour < 21;
 }
 
 // Overlap-guard (аудит надёжности, фаза 3): node-cron не мешает новому тику
@@ -114,6 +129,7 @@ function startReminderJobs(bot) {
     '* * * * *',
     withOverlapGuard('напоминание о неотмеченных занятиях', async () => {
       try {
+        if (!isActiveHours()) return;
         const hm = currentHM();
         const users = await UserModel.listAll();
         const today = todayDateOnly();
@@ -139,6 +155,7 @@ function startReminderJobs(bot) {
     '* * * * *',
     withOverlapGuard('чат-чекины', async () => {
       try {
+        if (!isActiveHours()) return;
         await sendDueCheckins(bot);
       } catch (err) {
         await notifyOwnerOfError(bot, 'чат-чекины', err);
@@ -377,17 +394,14 @@ function startReminderJobs(bot) {
   // Каждые 10 минут — self-ping собственного публичного URL, чтобы Render
   // (бесплатный тариф) не усыплял сервис после 15 минут без входящих запросов.
   // Интервал (не привязан к таймзоне) — сработает даже если RENDER_EXTERNAL_URL
-  // недоступен локально: тогда задача просто не регистрируется.
+  // недоступен локально: тогда задача просто не регистрируется. Статический
+  // ответ /api/health не трогает Neon — держит живым только сам процесс
+  // Render, что и требуется (budget CU-часов Neon не расходует).
   //
-  // Баг, найденный 28.09.2026: /api/health — статический ответ, к БД не
-  // обращается вообще. Self-ping держал не спящим только процесс Render, а
-  // Neon (отдельный бесплатный тариф) всё равно засыпал сам по себе, если
-  // никто из семьи не открывал приложение (по выходным занятий нет, Пн–Пт).
-  // В понедельник первый же per-minute cron-тик наткнулся на холодную БД —
-  // чат-чекин на занятие 16:00–16:40 разослался только в 17:13 вместо
-  // 16:45 (задача пережила задержку благодаря диапазону дат в запросе, §14.3,
-  // но 33 минуты — это заметно дольше обычного «пробуждения» Neon).
-  // Добавлен отдельный лёгкий keep-alive-запрос к БД тем же интервалом.
+  // Исторически (28.09.2026) здесь же стоял отдельный DB keep-alive-пинг —
+  // убран 19.10.2026: он не давал Neon засыпать 24/7, что само по себе
+  // исчерпало месячный лимит 100 CU-часов примерно за 2.5 недели (см.
+  // isActiveHours() выше — именно так теперь ограничивается расход часов).
   if (config.externalUrl && config.selfPingEnabled) {
     cron.schedule('*/10 * * * *', async () => {
       try {
@@ -402,16 +416,6 @@ function startReminderJobs(bot) {
     console.log(`Self-ping включён: каждые 10 минут → ${config.externalUrl}/api/health`);
   } else {
     console.log('Self-ping отключён (нет RENDER_EXTERNAL_URL/SELF_URL или SELF_PING_ENABLED=false)');
-  }
-
-  if (config.selfPingEnabled) {
-    cron.schedule('*/10 * * * *', async () => {
-      try {
-        await prisma.family.findFirst({ select: { id: true } });
-      } catch (err) {
-        console.error('DB keep-alive не удался:', err.message);
-      }
-    });
   }
 }
 
