@@ -64,6 +64,10 @@ export default function ReportReconciliation() {
     }
   }
 
+  // Колонка «Перенос» — только если в этом месяце есть зачтённый остаток
+  // прошлого месяца (на телефоне таблица и так узкая).
+  const hasCarry = !!report && report.rows.some((r) => r.carryIn);
+
   return (
     <>
       {error && <div className="error-box">{error}</div>}
@@ -84,6 +88,7 @@ export default function ReportReconciliation() {
                   <th>Ставка</th>
                   <th>Опл.</th>
                   <th>Пров.</th>
+                  {hasCarry && <th title="Остаток прошлого месяца, зачтённый в этот">Перен.</th>}
                   <th>Баланс</th>
                 </tr>
               </thead>
@@ -98,6 +103,7 @@ export default function ReportReconciliation() {
                     <td>{formatMoney(r.rate)}</td>
                     <td>{r.paid}</td>
                     <td>{r.completed}</td>
+                    {hasCarry && <td>{r.carryIn ? formatMoneySigned(r.carryIn) : '—'}</td>}
                     <td className={`balance-amount ${balanceColor(r.balance)}`}>{formatMoneySigned(r.balance)}</td>
                   </tr>
                 ))}

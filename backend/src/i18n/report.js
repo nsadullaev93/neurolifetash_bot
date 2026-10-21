@@ -75,6 +75,7 @@ const dict = {
     signature: 'Подпись',
     sum: 'сум',
     spentOnConducted: 'Потрачено на проведённые занятия',
+    carryIn: 'Перенос с прошлого месяца',
     sessionsUnit: 'занятий',
     discountApplied: 'Применена скидка 10% (от 20 занятий в месяц)',
     reasons: {
@@ -125,6 +126,7 @@ const dict = {
     signature: 'Imzo',
     sum: "so'm",
     spentOnConducted: "O'tkazilgan mashg'ulotlarga sarflandi",
+    carryIn: "O'tgan oydan o'tkazilgan qoldiq",
     sessionsUnit: "mashg'ulot",
     discountApplied: "10% chegirma qo'llanildi (oyiga kamida 20 mashg'ulot)",
     reasons: {
@@ -182,6 +184,7 @@ const dict = {
     signature: '签名',
     sum: '苏姆',
     spentOnConducted: '已完成课时花费',
+    carryIn: '上月结转余额',
     sessionsUnit: '节',
     discountApplied: '已享受9折优惠(每月满20节)',
     reasons: {

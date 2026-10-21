@@ -69,7 +69,7 @@ export default function Reports() {
           <div className="panel">
             <table className="data-table">
               <thead>
-                <tr><th>Специалист</th><th>Ставка</th><th>План</th><th>Оплачено</th><th>Проведено</th><th>Баланс</th></tr>
+                <tr><th>Специалист</th><th>Ставка</th><th>План</th><th>Оплачено</th><th>Проведено</th><th title="Остаток прошлого месяца, зачтённый в этот">Перенос</th><th>Баланс</th></tr>
               </thead>
               <tbody>
                 {report.rows.map((r) => (
@@ -82,13 +82,14 @@ export default function Reports() {
                     <td>{r.plan}</td>
                     <td>{r.paid}</td>
                     <td>{r.completed}</td>
+                    <td>{r.carryIn ? formatMoneySigned(r.carryIn) : '—'}</td>
                     <td className={`value ${balanceColor(r.balance)}`} style={{ fontSize: 13 }}>{formatMoneySigned(r.balance)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={5}><strong>Итого</strong></td>
+                  <td colSpan={6}><strong>Итого</strong></td>
                   <td className={`value ${balanceColor(report.total)}`} style={{ fontSize: 13 }}>
                     <strong>{formatMoneySigned(report.total)}</strong>
                   </td>

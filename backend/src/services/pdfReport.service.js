@@ -73,14 +73,16 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
   let totalSpentMoney = 0;
 
   for (const row of report.rows) {
-    const paidMoney = row.paid * row.rate;
-    const spentMoney = paidMoney - row.balance; // = "сколько денег ушло на реально проведённые занятия"
+    const paidMoney = row.paidAmount;
+    // Баланс = перенос + оплачено − потрачено, отсюда "сколько денег ушло на
+    // реально проведённые занятия".
+    const spentMoney = row.carryIn + paidMoney - row.balance;
     totalPaidMoney += paidMoney;
     totalSpentMoney += spentMoney;
     const notConducted = Math.max(row.paid - row.completed, 0);
     const balanceColor = row.balance < 0 ? '#B91C1C' : row.balance > 0 ? '#15803D' : '#111827';
 
-    const cardH = row.discountApplied ? 103 : 90;
+    const cardH = (row.discountApplied ? 103 : 90) + (row.carryIn ? 13 : 0);
     y = ensureSpace(doc, y, cardH);
     if (row.mismatch) {
       doc.rect(MARGIN, y - 4, pageWidth, cardH + 2).fill('#FEF3C7');
@@ -104,6 +106,10 @@ async function buildMonthlyReportPdf(year, month, lang, childName) {
       { size: 9, color: '#374151' },
     );
     y += 13;
+    if (row.carryIn) {
+      text(doc, `${L.carryIn}: ${formatSumSigned(row.carryIn, L.sum)}`, MARGIN, y, { size: 9, color: '#374151' });
+      y += 13;
+    }
     let conductedLine = `${L.conducted}: ${row.completed} ${L.sessionsUnit}`;
     if (row.centerConducted != null) {
       conductedLine += ` (${L.centerConducted.toLowerCase()}: ${row.centerConducted})`;

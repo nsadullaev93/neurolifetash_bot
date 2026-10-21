@@ -1,7 +1,7 @@
 const SessionModel = require('../models/Session');
 const PaymentModel = require('../models/Payment');
 const SettlementModel = require('../models/Settlement');
-const { computePlanByTrainerForMonth } = require('./forecast.service');
+const { computePlanByTrainerForMonth, getCarryAdjustments } = require('./forecast.service');
 
 // Специалисты, у которых есть реальные занятия/оплата/сверка именно в этом
 // месяце — нужны, чтобы деактивация специалиста СЕЙЧАС не стирала его из
@@ -19,17 +19,28 @@ function historicalTrainerIds(sessions, payments, settlements) {
 //   S = rateSnapshot of the FIRST payment of the month (or current level rate if none)
 //   C = COUNT(COMPLETED + MAKEUP) by the EFFECTIVE trainer for the month
 //   billable = agreedConducted (если центр и родитель согласовали другое число), иначе C
-//   Balance = (P - billable) * S
+//   carryIn = перенесённый остаток прошлого месяца (CARRIED_OVER), зачтённый
+//             этому специалисту — тот же, что уменьшает "к оплате" в калькуляторе
+//   paidAmount = сумма totalAmount оплат месяца (реально внесённые деньги)
+//   Balance = carryIn + paidAmount - billable * S
+//
+// Раньше было (P - billable) * S без переноса: остаток прошлого месяца
+// уменьшал "к оплате", но в отчёт не попадал, и специалист, которому его
+// зачли, показывал минус за каждое проведённое занятие (Ван, 21.10.2026:
+// −308 000 вместо +936 000). Если заплатить "к оплате" (уже за вычетом
+// переноса), баланс на конец месяца сходится в (план − проведено) * S, без
+// двойного учёта. paidAmount вместо P * S: при существующих оплатах это
+// одно и то же (сумма считается как P * S), но оплата, уменьшенная на
+// перенос, — не целое число занятий.
 async function calculateMonthlyReconciliation(year, month) {
   const sessions = await SessionModel.listForMonth(year, month);
   const payments = await PaymentModel.listForMonth(year, month);
   const settlements = await SettlementModel.listForMonth(year, month);
   const settlementByTrainer = new Map(settlements.map((s) => [s.trainerId, s]));
-  const planByTrainer = await computePlanByTrainerForMonth(
-    year,
-    month,
-    historicalTrainerIds(sessions, payments, settlements),
-  );
+  const carryByTrainer = await getCarryAdjustments(year, month);
+  const trainerIds = historicalTrainerIds(sessions, payments, settlements);
+  for (const id of carryByTrainer.keys()) trainerIds.add(id);
+  const planByTrainer = await computePlanByTrainerForMonth(year, month, trainerIds);
 
   // За месяц одному специалисту может быть несколько оплат (ТЗ v2, §2.10):
   // P — их сумма, S — ставка-снимок ПЕРВОЙ по времени оплаты месяца.
@@ -47,6 +58,8 @@ async function calculateMonthlyReconciliation(year, month) {
     const trainerPayments = paymentsByTrainer.get(trainer.id) || [];
     const hasPayment = trainerPayments.length > 0;
     const P = trainerPayments.reduce((sum, p) => sum + p.paidSessions, 0);
+    const paidAmount = trainerPayments.reduce((sum, p) => sum + p.totalAmount, 0);
+    const carryIn = carryByTrainer.get(trainer.id) ?? 0;
     const S = hasPayment ? trainerPayments[0].rateSnapshot : trainer.level.rate;
     // Скидка привязана к тому же платежу, что задаёт S (первому по времени
     // в месяце) — она уже "внутри" S, здесь только для отображения флага.
@@ -62,7 +75,7 @@ async function calculateMonthlyReconciliation(year, month) {
     const mismatch = centerConducted != null && centerConducted !== C;
     const disputeOpen = mismatch && agreedConducted == null;
     const billable = agreedConducted ?? C;
-    const balance = (P - billable) * S;
+    const balance = carryIn + paidAmount - billable * S;
 
     const overpayWarning = P > plan
       ? { extraSessions: P - plan, extraAmount: (P - plan) * S }
@@ -77,6 +90,8 @@ async function calculateMonthlyReconciliation(year, month) {
       discountApplied,
       plan,
       paid: P,
+      paidAmount,
+      carryIn,
       completed: C,
       centerConducted,
       agreedConducted,

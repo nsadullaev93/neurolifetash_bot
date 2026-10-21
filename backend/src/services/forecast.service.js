@@ -80,8 +80,13 @@ async function computePlanByTrainer(year, month) {
 // 03.10.2026, см. основную заметку §20.
 async function computePlanByTrainerForMonth(year, month, extraTrainerIds) {
   const allTrainers = await TrainerModel.listAll();
-  const relevant = allTrainers.filter((t) => t.isActive || extraTrainerIds.has(t.id));
   const ctx = await monthPlanContext(year, month);
+  // Активный специалист, начавший работать позже этого месяца (startDate
+  // после его последнего дня), в отчёт за этот месяц не попадает.
+  const monthEnd = ctx.monthDates[ctx.monthDates.length - 1];
+  const relevant = allTrainers.filter(
+    (t) => extraTrainerIds.has(t.id) || (t.isActive && !isBeforeStart(monthEnd, t)),
+  );
   return relevant.map((trainer) => ({ trainer, plan: planForTrainer(trainer, ctx) }));
 }
 
@@ -163,6 +168,7 @@ async function getUnconfirmedHolidayWarnings(year, month) {
 }
 
 module.exports = {
+  getCarryAdjustments,
   planForTrainer,
   computePlanByTrainer,
   computePlanByTrainerForMonth,
