@@ -5,7 +5,7 @@ const PaymentModel = require('../models/Payment');
 const HolidayModel = require('../models/Holiday');
 const TrainerPauseModel = require('../models/TrainerPause');
 const { getMonthDateList, isoWeekday, prevMonthOf } = require('../utils/date');
-const { isPausedOn } = require('../utils/trainerPause');
+const { isPausedOn, isBeforeStart } = require('../utils/trainerPause');
 const { computePaymentStatus } = require('../utils/paymentStatus');
 
 // Перенесённые расчёты ПРЕДЫДУЩЕГО месяца (ТЗ v2, §2.7, §2.9). Переплата
@@ -42,8 +42,10 @@ async function monthPlanContext(year, month) {
 }
 
 // Plan = number of (day, slot) matches from the schedule template in the
-// given month, excluding closed days and days paused for that specific
-// specialist (отпуск и т.п. — §2.7.1).
+// given month, excluding closed days, days paused for that specific
+// specialist (отпуск и т.п. — §2.7.1) and days before the specialist's
+// startDate (замена с середины месяца — иначе план считался за весь месяц,
+// 21.10.2026).
 function planForTrainer(trainer, { closedSet, monthDates, pausesByTrainer }) {
   const activeSlots = trainer.slots.filter((s) => s.isActive);
   const trainerPauses = pausesByTrainer.get(trainer.id) || [];
@@ -53,6 +55,7 @@ function planForTrainer(trainer, { closedSet, monthDates, pausesByTrainer }) {
     const key = date.toISOString().slice(0, 10);
     if (closedSet.has(key)) continue;
     if (isPausedOn(date, trainerPauses)) continue;
+    if (isBeforeStart(date, trainer)) continue;
     const weekday = isoWeekday(date);
     plan += activeSlots.filter((s) => s.weekday === weekday).length;
   }
@@ -151,6 +154,7 @@ async function getUnconfirmedHolidayWarnings(year, month) {
   return unknownWeekdayHolidays.map((h) => {
     const weekday = isoWeekday(h.date);
     const impact = trainers.reduce((sum, t) => {
+      if (isBeforeStart(h.date, t)) return sum;
       const slotsThatDay = t.slots.filter((s) => s.isActive && s.weekday === weekday).length;
       return sum + slotsThatDay * t.level.rate;
     }, 0);
@@ -159,6 +163,7 @@ async function getUnconfirmedHolidayWarnings(year, month) {
 }
 
 module.exports = {
+  planForTrainer,
   computePlanByTrainer,
   computePlanByTrainerForMonth,
   calculateForecast,

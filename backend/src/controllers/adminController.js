@@ -129,13 +129,19 @@ async function listTrainers(req, res, next) {
 
 async function createTrainer(req, res, next) {
   try {
-    const { name, levelId, isActive, note, color } = req.body;
+    const { name, levelId, isActive, note, color, startDate } = req.body;
+    let start = null;
+    if (startDate) {
+      start = parseStrictDateOnly(startDate);
+      if (!start) return res.status(400).json({ error: 'startDate должен быть строкой YYYY-MM-DD' });
+    }
     const created = await TrainerModel.create({
       name,
       levelId: Number(levelId),
       isActive: isActive !== undefined ? isActive : true,
       note: note || null,
       color: color || '#3A86FF',
+      startDate: start,
     });
     res.status(201).json(created);
   } catch (err) {
@@ -148,12 +154,20 @@ async function updateTrainer(req, res, next) {
     const existing = await TrainerModel.findById(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Специалист не найден' });
 
-    const { name, levelId, isActive, note } = req.body;
+    const { name, levelId, isActive, note, startDate } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (levelId !== undefined) data.levelId = Number(levelId);
     if (isActive !== undefined) data.isActive = isActive;
     if (note !== undefined) data.note = note;
+    if (startDate !== undefined) {
+      if (startDate === null || startDate === '') {
+        data.startDate = null;
+      } else {
+        data.startDate = parseStrictDateOnly(startDate);
+        if (!data.startDate) return res.status(400).json({ error: 'startDate должен быть строкой YYYY-MM-DD' });
+      }
+    }
 
     const updated = await TrainerModel.update(req.params.id, data);
     await logAudit('Trainer', req.params.id, 'update', existing, updated);

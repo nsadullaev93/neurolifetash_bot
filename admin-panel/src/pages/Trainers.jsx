@@ -11,6 +11,7 @@ export default function Trainers() {
   const [levelId, setLevelId] = useState('');
   const [note, setNote] = useState('');
   const [color, setColor] = useState('#F4A261');
+  const [startDate, setStartDate] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -29,9 +30,10 @@ export default function Trainers() {
     e.preventDefault();
     setError('');
     try {
-      await api.createTrainer({ name, levelId: Number(levelId), note, color });
+      await api.createTrainer({ name, levelId: Number(levelId), note, color, startDate: startDate || null });
       setName('');
       setNote('');
+      setStartDate('');
       await load();
     } catch (err) {
       setError(err.message);
@@ -50,6 +52,22 @@ export default function Trainers() {
   async function changeLevel(t, newLevelId) {
     try {
       await api.updateTrainer(t.id, { levelId: Number(newLevelId) });
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  // Дата начала работы влияет на сумму «к оплате», поэтому — с подтверждением.
+  async function changeStartDate(t, input, previous) {
+    const value = input.value;
+    const label = value ? value.split('-').reverse().join('.') : 'не указана (весь месяц)';
+    if (!confirm(`${t.name}: работает с ${label}? Пересчитается план и сумма к оплате.`)) {
+      input.value = previous;
+      return;
+    }
+    try {
+      await api.updateTrainer(t.id, { startDate: value || null });
       await load();
     } catch (err) {
       setError(err.message);
@@ -86,6 +104,10 @@ export default function Trainers() {
               </select>
             </div>
             <div className="field">
+              <label>Работает с</label>
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </div>
+            <div className="field">
               <label>Заметка</label>
               <input value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
@@ -106,7 +128,7 @@ export default function Trainers() {
       <div className="panel">
         <table className="data-table">
           <thead>
-            <tr><th>Имя</th><th>Уровень</th><th>Ставка</th><th>Статус</th><th>Заметка</th><th></th></tr>
+            <tr><th>Имя</th><th>Уровень</th><th>Ставка</th><th>Работает с</th><th>Статус</th><th>Заметка</th><th></th></tr>
           </thead>
           <tbody>
             {trainers.map((t) => (
@@ -118,6 +140,17 @@ export default function Trainers() {
                   </select>
                 </td>
                 <td>{formatMoney(t.level.rate)}</td>
+                <td>
+                  <input
+                    type="date"
+                    key={t.startDate || 'none'}
+                    defaultValue={t.startDate ? t.startDate.slice(0, 10) : ''}
+                    onBlur={(e) => {
+                      const current = t.startDate ? t.startDate.slice(0, 10) : '';
+                      if (e.target.value !== current) changeStartDate(t, e.target, current);
+                    }}
+                  />
+                </td>
                 <td>
                   <span className={`badge ${t.isActive ? 'green' : 'gray'}`}>{t.isActive ? 'Активен' : 'Отключён'}</span>
                 </td>

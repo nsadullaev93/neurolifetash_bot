@@ -139,6 +139,9 @@ model Trainer {
   color           String // постоянный цвет в интерфейсе, напр. "#E4572E"
   isActive        Boolean          @default(true)
   note            String?
+  // С какой даты специалист работает (замена посреди месяца) — дни до неё
+  // не входят в план по графику и не генерируются в расписании.
+  startDate       DateTime?        @db.Date
   slots           ScheduleSlot[]
   plannedSessions Session[]        @relation("PlannedTrainer")
   actualSessions  Session[]        @relation("ActualTrainer")

@@ -12,4 +12,11 @@ function isPausedOn(dateOnlyValue, pauses) {
   });
 }
 
-module.exports = { isPausedOn };
+// Дата раньше Trainer.startDate (специалист ещё не начал работать —
+// например, замена с середины месяца). Без startDate — работает всегда.
+function isBeforeStart(dateOnlyValue, trainer) {
+  if (!trainer || !trainer.startDate) return false;
+  return new Date(dateOnlyValue).getTime() < new Date(trainer.startDate).getTime();
+}
+
+module.exports = { isPausedOn, isBeforeStart };

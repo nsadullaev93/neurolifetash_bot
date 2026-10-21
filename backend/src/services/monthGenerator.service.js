@@ -4,7 +4,7 @@ const ClosedDayModel = require('../models/ClosedDay');
 const TrainerPauseModel = require('../models/TrainerPause');
 const { getMonthDateList, isoWeekday, ymd, dateOnly, daysInMonth, todayDateOnly, nowYearMonth } = require('../utils/date');
 const { getChildId } = require('../utils/scope');
-const { isPausedOn } = require('../utils/trainerPause');
+const { isPausedOn, isBeforeStart } = require('../utils/trainerPause');
 
 async function pausesByTrainerForMonth(year, month) {
   const pauses = await TrainerPauseModel.listOverlappingMonth(year, month);
@@ -53,6 +53,7 @@ async function generateMonth(year, month) {
 
     for (const slot of slotsToday) {
       if (isPausedOn(date, pausesByTrainer.get(slot.trainerId) || [])) continue;
+      if (isBeforeStart(date, slot.trainer)) continue;
 
       const existing = await prisma.session.findUnique({
         where: {
@@ -128,6 +129,7 @@ async function regenerateFromDate(fromDateOnly) {
 
         for (const slot of slotsToday) {
           if (isPausedOn(date, pausesByTrainer.get(slot.trainerId) || [])) continue;
+          if (isBeforeStart(date, slot.trainer)) continue;
 
           const existing = await tx.session.findUnique({
             where: {
@@ -220,6 +222,7 @@ async function restoreSessionsAfterPauseEnd(trainerId, fromDate, toDate, { year,
     const slotsToday = slots.filter((s) => s.weekday === weekday);
 
     for (const slot of slotsToday) {
+      if (isBeforeStart(date, slot.trainer)) continue;
       const existing = await prisma.session.findUnique({
         where: {
           childId_date_plannedTrainerId_startTime: {

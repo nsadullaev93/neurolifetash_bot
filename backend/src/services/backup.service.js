@@ -128,6 +128,7 @@ async function restoreBackup(tx, backup) {
     color: r.color,
     isActive: r.isActive,
     note: r.note,
+    startDate: toDate(r.startDate) ?? null,
     createdAt: toDate(r.createdAt),
   }));
 
