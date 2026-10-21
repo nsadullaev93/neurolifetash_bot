@@ -3,7 +3,7 @@ const SessionModel = require('../models/Session');
 const SessionCheckinModel = require('../models/SessionCheckin');
 const FamilyMemberModel = require('../models/FamilyMember');
 const TrainerModel = require('../models/Trainer');
-const { nowTz, dateOnly, combineDateAndTime } = require('../utils/date');
+const { nowTz, dateOnly, combineDateAndTime, toDateOnly, todayDateOnly, formatDateShort } = require('../utils/date');
 
 // «Без причины» и другие быстрые причины из кнопок чат-чекина (ТЗ v2,
 // §7.1) — упрощённый набор по сравнению с полным списком статусов в
@@ -25,9 +25,16 @@ function rev(session) {
   return session.updatedAt.getTime().toString(36);
 }
 
+// Если занятие запоздало (не за сегодня — например, расписание применили
+// задним числом и чекин по уже прошедшему дню долетел с опозданием, см.
+// случай 21.10.2026), дата явно указывается в самом вопросе — без этого
+// получатель не может понять, о каком дне идёт речь, когда чекин приходит
+// не сразу после занятия.
 function questionText(session) {
   const trainer = session.plannedTrainer;
-  return `🕓 ${session.startTime}–${session.endTime} · ${trainer.name}\nЗанятие состоялось?`;
+  const isBackdated = toDateOnly(session.date).getTime() !== todayDateOnly().getTime();
+  const dateNote = isBackdated ? ` (за ${formatDateShort(session.date)})` : '';
+  return `🕓 ${session.startTime}–${session.endTime} · ${trainer.name}${dateNote}\nЗанятие состоялось?`;
 }
 
 function questionKeyboard(sessionId, includeBulkButton, revToken) {
