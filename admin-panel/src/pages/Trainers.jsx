@@ -10,6 +10,7 @@ export default function Trainers() {
   const [name, setName] = useState('');
   const [levelId, setLevelId] = useState('');
   const [note, setNote] = useState('');
+  const [color, setColor] = useState('#F4A261');
 
   const load = useCallback(async () => {
     try {
@@ -28,7 +29,7 @@ export default function Trainers() {
     e.preventDefault();
     setError('');
     try {
-      await api.createTrainer({ name, levelId: Number(levelId), note });
+      await api.createTrainer({ name, levelId: Number(levelId), note, color });
       setName('');
       setNote('');
       await load();
@@ -87,6 +88,15 @@ export default function Trainers() {
             <div className="field">
               <label>Заметка</label>
               <input value={note} onChange={(e) => setNote(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Цвет</label>
+              <input
+                type="color"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                style={{ width: 60, height: 38, padding: 2, borderRadius: 8, border: '1px solid var(--border)' }}
+              />
             </div>
             <button className="btn btn-primary" type="submit">Добавить</button>
           </div>

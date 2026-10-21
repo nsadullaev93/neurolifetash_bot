@@ -128,12 +128,13 @@ async function listTrainers(req, res, next) {
 
 async function createTrainer(req, res, next) {
   try {
-    const { name, levelId, isActive, note } = req.body;
+    const { name, levelId, isActive, note, color } = req.body;
     const created = await TrainerModel.create({
       name,
       levelId: Number(levelId),
       isActive: isActive !== undefined ? isActive : true,
       note: note || null,
+      color: color || '#3A86FF',
     });
     res.status(201).json(created);
   } catch (err) {
