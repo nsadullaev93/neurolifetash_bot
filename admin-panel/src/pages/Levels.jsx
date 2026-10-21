@@ -52,6 +52,19 @@ export default function Levels() {
     }
   }
 
+  async function removeLevel(level) {
+    if (!confirm(`Удалить уровень «${level.name}»? Если есть специалисты с этим уровнем — сервер откажет.`)) return;
+    setError('');
+    setSuccess('');
+    try {
+      await api.deleteLevel(level.id);
+      setSuccess(`Уровень «${level.name}» удалён.`);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
     <div>
       <div className="page-header"><h1>Уровни и ставки</h1></div>
@@ -94,7 +107,7 @@ export default function Levels() {
       <div className="panel">
         <table className="data-table">
           <thead>
-            <tr><th>Уровень</th><th>Текущая ставка</th><th>Новая ставка</th><th></th></tr>
+            <tr><th>Уровень</th><th>Текущая ставка</th><th>Новая ставка</th><th></th><th></th></tr>
           </thead>
           <tbody>
             {levels.map((l) => (
@@ -111,6 +124,9 @@ export default function Levels() {
                 </td>
                 <td>
                   <button className="btn btn-primary btn-sm" onClick={() => saveRate(l)}>Сохранить</button>
+                </td>
+                <td>
+                  <button className="btn btn-danger btn-sm" onClick={() => removeLevel(l)}>Удалить</button>
                 </td>
               </tr>
             ))}

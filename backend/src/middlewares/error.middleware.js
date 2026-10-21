@@ -12,6 +12,9 @@ function errorMiddleware(err, req, res, next) {
   if (err.code === 'P2025') {
     return res.status(404).json({ error: 'Запись не найдена' });
   }
+  if (err.code === 'P2003') {
+    return res.status(409).json({ error: 'Нельзя удалить — запись используется в других данных (например, есть специалисты с этим уровнем)' });
+  }
 
   res.status(err.status || 500).json({ error: err.message || 'Внутренняя ошибка сервера' });
 }
