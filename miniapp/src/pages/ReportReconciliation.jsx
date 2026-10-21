@@ -64,9 +64,11 @@ export default function ReportReconciliation() {
     }
   }
 
-  // Колонка «Перенос» — только если в этом месяце есть зачтённый остаток
-  // прошлого месяца (на телефоне таблица и так узкая).
-  const hasCarry = !!report && report.rows.some((r) => r.carryIn);
+  // Специалист без плана, оплат, занятий и переноса (например, в отпуске
+  // весь месяц) — пустая строка с нулями, только шум.
+  const visibleRows = report
+    ? report.rows.filter((r) => r.plan || r.paid || r.completed || r.carryIn || r.balance)
+    : [];
 
   return (
     <>
@@ -80,44 +82,38 @@ export default function ReportReconciliation() {
 
       {report && (
         <>
-          <div className="card">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Специалист</th>
-                  <th>Ставка</th>
-                  <th>Опл.</th>
-                  <th>Пров.</th>
-                  {hasCarry && <th title="Остаток прошлого месяца, зачтённый в этот">Перен.</th>}
-                  <th>Баланс</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.rows.map((r) => (
-                  <tr key={r.trainerId}>
-                    <td>
+          {/* Карточки вместо таблицы: 6 колонок не помещались в ширину телефона
+              и сдвигали весь экран вбок (21.10.2026). */}
+          <div className="card recon-list">
+            {visibleRows.length === 0 && <div className="empty-state">В этом месяце занятий и оплат нет</div>}
+            {visibleRows.map((r) => (
+              <div className="recon-row" key={r.trainerId}>
+                <div className="recon-head">
+                  <div className="recon-name">
+                    <div className="balance-name">
                       {r.trainerName}
                       {r.mismatch && <span title="Расходится с данными центра"> ⚠️</span>}
                       {r.discountApplied && <span title="Применена скидка 10%"> 🏷️</span>}
-                    </td>
-                    <td>{formatMoney(r.rate)}</td>
-                    <td>{r.paid}</td>
-                    <td>{r.completed}</td>
-                    {hasCarry && <td>{r.carryIn ? formatMoneySigned(r.carryIn) : '—'}</td>}
-                    <td className={`balance-amount ${balanceColor(r.balance)}`}>{formatMoneySigned(r.balance)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {report.rows.some((r) => r.overpayWarning) && (
-              <div className="warning-box">
-                {report.rows.filter((r) => r.overpayWarning).map((r) => (
-                  <div key={r.trainerId}>
-                    {r.trainerName}: оплачено {r.paid}, по графику {r.plan}. Переплата на {r.overpayWarning.extraSessions} занятий ({formatMoney(r.overpayWarning.extraAmount)}).
+                    </div>
+                    <div className="balance-detail">{formatMoney(r.rate)} за занятие</div>
                   </div>
-                ))}
+                  <div className={`balance-amount ${balanceColor(r.balance)}`}>{formatMoneySigned(r.balance)}</div>
+                </div>
+                <div className="recon-stats">
+                  <span>План <b>{r.plan}</b></span>
+                  <span>Оплачено <b>{r.paid}</b></span>
+                  <span>Проведено <b>{r.completed}</b></span>
+                </div>
+                {r.carryIn !== 0 && (
+                  <div className="recon-note">🔄 Перенос с прошлого месяца: {formatMoneySigned(r.carryIn)}</div>
+                )}
+                {r.overpayWarning && (
+                  <div className="recon-note recon-warn">
+                    Оплачено больше графика на {r.overpayWarning.extraSessions} зан. ({formatMoney(r.overpayWarning.extraAmount)})
+                  </div>
+                )}
               </div>
-            )}
+            ))}
           </div>
 
           <div className="card total-balance-card">
