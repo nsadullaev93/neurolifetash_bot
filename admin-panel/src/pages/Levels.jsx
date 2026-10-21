@@ -8,6 +8,10 @@ export default function Levels() {
   const [success, setSuccess] = useState('');
   const [drafts, setDrafts] = useState({});
 
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [rate, setRate] = useState('');
+
   const load = useCallback(async () => {
     try {
       const list = await api.getLevels();
@@ -32,11 +36,60 @@ export default function Levels() {
     }
   }
 
+  async function createLevel(e) {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    try {
+      await api.createLevel({ code, name, rate: Number(rate) });
+      setSuccess(`Уровень «${name}» добавлен.`);
+      setCode('');
+      setName('');
+      setRate('');
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
     <div>
       <div className="page-header"><h1>Уровни и ставки</h1></div>
       {error && <div className="error-box">{error}</div>}
       {success && <div className="success-box">{success}</div>}
+
+      <div className="panel">
+        <h2>Добавить уровень</h2>
+        <form onSubmit={createLevel}>
+          <div className="form-row">
+            <div className="field">
+              <label>Код</label>
+              <input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="Например, SPECIAL"
+                required
+              />
+            </div>
+            <div className="field">
+              <label>Название</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Приглашённый" required />
+            </div>
+            <div className="field">
+              <label>Ставка</label>
+              <input
+                type="number"
+                min="0"
+                value={rate}
+                onChange={(e) => setRate(e.target.value)}
+                placeholder="308000"
+                required
+              />
+            </div>
+            <button className="btn btn-primary" type="submit">Добавить</button>
+          </div>
+        </form>
+      </div>
 
       <div className="panel">
         <table className="data-table">
