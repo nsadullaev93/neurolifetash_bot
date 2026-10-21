@@ -10,6 +10,7 @@ const HolidayModel = require('../models/Holiday');
 const PaymentModel = require('../models/Payment');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
+const SettlementModel = require('../models/Settlement');
 const {
   generateMonth,
   regenerateFromDate,
@@ -231,6 +232,59 @@ async function deleteTrainerPause(req, res, next) {
     await restoreSessionsAfterPauseEnd(pause.trainerId, pause.fromDate, pause.toDate);
 
     res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ---------- carry-overs (перенос остатка) ----------
+//
+// Остатки прошлого месяца (Settlement CARRIED_OVER), зачитываемые в
+// выбранный месяц, и возможность перенаправить остаток другому специалисту
+// (carriedToTrainerId) — см. forecast.service.js#getCarryAdjustments.
+
+function serializeCarry(s) {
+  return {
+    id: s.id,
+    fromYear: s.year,
+    fromMonth: s.month,
+    trainerId: s.trainerId,
+    trainerName: s.trainer.name,
+    balance: s.balance,
+    carriedToYear: s.carriedToYear,
+    carriedToMonth: s.carriedToMonth,
+    targetTrainerId: s.carriedToTrainerId ?? s.trainerId,
+    targetTrainerName: (s.carriedToTrainer || s.trainer).name,
+  };
+}
+
+async function listCarryOvers(req, res, next) {
+  try {
+    const { year, month } = req.query.year ? { year: Number(req.query.year), month: Number(req.query.month) } : nowYearMonth();
+    const list = await SettlementModel.listCarriedInto(year, month);
+    res.json(list.map(serializeCarry));
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function updateCarryTarget(req, res, next) {
+  try {
+    const existing = await SettlementModel.findById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Перенос не найден' });
+    if (existing.status !== 'CARRIED_OVER') {
+      return res.status(400).json({ error: 'Перенаправить можно только перенесённый остаток' });
+    }
+
+    const targetId = Number(req.body.targetTrainerId);
+    const target = await TrainerModel.findById(targetId);
+    if (!target) return res.status(400).json({ error: 'Специалист не найден' });
+
+    // Тот же специалист — храним null (исходное поведение по умолчанию).
+    const carriedToTrainerId = targetId === existing.trainerId ? null : targetId;
+    const updated = await SettlementModel.setCarryTarget(existing.id, carriedToTrainerId);
+    await logAudit('Settlement', existing.id, 'carry-target', existing, updated);
+    res.json(serializeCarry(updated));
   } catch (err) {
     next(err);
   }
@@ -695,6 +749,8 @@ module.exports = {
   listTrainerPauses,
   createTrainerPause,
   deleteTrainerPause,
+  listCarryOvers,
+  updateCarryTarget,
   listUsers,
   generateMonthHandler,
   listAuditLog,

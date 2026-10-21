@@ -144,6 +144,7 @@ model Trainer {
   actualSessions  Session[]        @relation("ActualTrainer")
   payments        MonthlyPayment[]
   settlements     Settlement[]
+  carriedSettlements Settlement[]  @relation("CarriedToTrainer")
   pauses          TrainerPause[]
   createdAt       DateTime         @default(now())
 }
@@ -264,6 +265,14 @@ model Settlement {
   paidAt          DateTime?
   carriedToYear   Int? // для CARRIED_OVER
   carriedToMonth  Int?
+  // Кому из специалистов зачесть перенесённый остаток в carriedToYear/
+  // carriedToMonth — по умолчанию null означает "тому же специалисту, у
+  // кого образовался остаток" (исходное поведение). Админ может
+  // перенаправить на другого специалиста (например, переплата у
+  // специалиста в отпуске реально полезна только тому, кто сейчас
+  // работает) — см. forecast.service.js#getCarryAdjustments.
+  carriedToTrainerId Int?
+  carriedToTrainer   Trainer?      @relation("CarriedToTrainer", fields: [carriedToTrainerId], references: [id], onDelete: SetNull)
   updatedAt       DateTime         @updatedAt
 
   @@unique([year, month, trainerId])

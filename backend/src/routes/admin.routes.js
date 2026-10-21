@@ -49,6 +49,8 @@ router.delete('/holidays/:id', adminController.deleteHoliday);
 router.get('/trainer-pauses', adminController.listTrainerPauses);
 router.post('/trainer-pauses', adminController.createTrainerPause);
 router.delete('/trainer-pauses/:id', adminController.deleteTrainerPause);
+router.get('/carry-overs', adminController.listCarryOvers);
+router.patch('/carry-overs/:id', adminController.updateCarryTarget);
 
 router.get('/users', adminController.listUsers);
 router.get('/audit-log', adminController.listAuditLog);

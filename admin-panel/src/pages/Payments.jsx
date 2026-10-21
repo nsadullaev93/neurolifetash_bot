@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, Fragment } from 'react';
 import { api } from '../api/client';
 import { formatMoney, RU_MONTHS_NOM } from '../utils/format';
+import CarryOverPanel from '../components/CarryOverPanel';
 
 // Группирует плоский список оплат (отсортирован backend'ом по убыванию
 // year/month) по месяцам с итоговой суммой — плоский список было сложно
@@ -153,6 +154,8 @@ export default function Payments() {
           </div>
         </form>
       </div>
+
+      <CarryOverPanel trainers={trainers} />
 
       <div className="panel">
         <table className="data-table">

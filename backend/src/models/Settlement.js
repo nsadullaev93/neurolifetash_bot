@@ -42,4 +42,34 @@ async function update(year, month, trainerId, data) {
   });
 }
 
-module.exports = { listForMonth, listAll, findByYearMonthTrainer, upsert, update };
+// Перенесённые остатки, которые зачитываются в указанный месяц.
+async function listCarriedInto(year, month) {
+  return prisma.settlement.findMany({
+    where: { status: 'CARRIED_OVER', carriedToYear: year, carriedToMonth: month },
+    include: { trainer: true, carriedToTrainer: true },
+    orderBy: { trainerId: 'asc' },
+  });
+}
+
+async function findById(id) {
+  return prisma.settlement.findUnique({ where: { id: Number(id) } });
+}
+
+async function setCarryTarget(id, carriedToTrainerId) {
+  return prisma.settlement.update({
+    where: { id: Number(id) },
+    data: { carriedToTrainerId },
+    include: { trainer: true, carriedToTrainer: true },
+  });
+}
+
+module.exports = {
+  listForMonth,
+  listAll,
+  findByYearMonthTrainer,
+  upsert,
+  update,
+  listCarriedInto,
+  findById,
+  setCarryTarget,
+};

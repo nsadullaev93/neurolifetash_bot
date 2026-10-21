@@ -196,6 +196,7 @@ async function restoreBackup(tx, backup) {
     paidAt: toDate(r.paidAt),
     carriedToYear: r.carriedToYear,
     carriedToMonth: r.carriedToMonth,
+    carriedToTrainerId: r.carriedToTrainerId ?? null,
     updatedAt: toDate(r.updatedAt),
   }));
 

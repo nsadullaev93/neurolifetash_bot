@@ -87,6 +87,9 @@ export const api = {
   getTrainerPauses: () => request('/trainer-pauses'),
   createTrainerPause: (data) => request('/trainer-pauses', { method: 'POST', body: JSON.stringify(data) }),
   deleteTrainerPause: (id) => request(`/trainer-pauses/${id}`, { method: 'DELETE' }),
+  getCarryOvers: (year, month) => request(`/carry-overs?year=${year}&month=${month}`),
+  updateCarryTarget: (id, targetTrainerId) =>
+    request(`/carry-overs/${id}`, { method: 'PATCH', body: JSON.stringify({ targetTrainerId }) }),
 
   getUsers: () => request('/users'),
   getAuditLog: () => request('/audit-log'),

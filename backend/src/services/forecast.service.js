@@ -16,9 +16,14 @@ const { computePaymentStatus } = require('../utils/paymentStatus');
 async function getCarryAdjustments(year, month) {
   const { year: prevYear, month: prevM } = prevMonthOf(year, month);
   const settlements = await SettlementModel.listForMonth(prevYear, prevM);
+  // Остаток зачитывается тому специалисту, кого выбрал админ
+  // (carriedToTrainerId), иначе — тому же, у кого он образовался. Несколько
+  // остатков на одного получателя суммируются.
   const byTrainer = new Map();
   for (const s of settlements) {
-    if (s.status === 'CARRIED_OVER') byTrainer.set(s.trainerId, s.balance);
+    if (s.status !== 'CARRIED_OVER') continue;
+    const target = s.carriedToTrainerId ?? s.trainerId;
+    byTrainer.set(target, (byTrainer.get(target) ?? 0) + s.balance);
   }
   return byTrainer;
 }
