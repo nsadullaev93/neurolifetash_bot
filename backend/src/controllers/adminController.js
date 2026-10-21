@@ -11,6 +11,7 @@ const PaymentModel = require('../models/Payment');
 const UserModel = require('../models/User');
 const SessionModel = require('../models/Session');
 const SettlementModel = require('../models/Settlement');
+const { listCarryHistoryEntries } = require('../services/carryHistory.service');
 const {
   generateMonth,
   regenerateFromDate,
@@ -455,7 +456,8 @@ async function bulkUpdateSessions(req, res, next) {
 
 async function listPayments(req, res, next) {
   try {
-    res.json((await PaymentModel.listAll()).map(serializePayment));
+    const payments = (await PaymentModel.listAll()).map(serializePayment);
+    res.json([...payments, ...(await listCarryHistoryEntries())]);
   } catch (err) {
     next(err);
   }

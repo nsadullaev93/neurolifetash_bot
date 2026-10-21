@@ -13,7 +13,8 @@ function groupPaymentsByMonth(payments) {
     if (!map.has(key)) map.set(key, { year: p.year, month: p.month, items: [], total: 0 });
     const group = map.get(key);
     group.items.push(p);
-    group.total += p.totalAmount;
+    // Зачтённый остаток прошлого месяца — не новые деньги, в итог не входит.
+    if (!p.fromCarry) group.total += p.totalAmount;
   }
   return Array.from(map.values()).sort((a, b) => b.year - a.year || b.month - a.month);
 }
@@ -168,7 +169,22 @@ export default function Payments() {
                 <tr className="history-month-row">
                   <td colSpan={6}>{RU_MONTHS_NOM[group.month - 1]} {group.year}</td>
                 </tr>
-                {group.items.map((p) => (
+                {group.items.map((p) => (p.fromCarry ? (
+                  <tr key={p.id}>
+                    <td>
+                      {p.trainerName}
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                        из остатка за {RU_MONTHS_NOM[p.sources[0].month - 1].toLowerCase()}:{' '}
+                        {p.sources.map((s) => `${s.trainerName} ${formatMoney(s.amount)}`).join(' + ')}
+                      </div>
+                    </td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>{formatMoney(p.totalAmount)} 🔄</td>
+                    <td></td>
+                  </tr>
+                ) : (
                   <tr key={p.id}>
                     <td>{p.trainerName}</td>
                     <td>{p.paidSessions}</td>
@@ -179,7 +195,7 @@ export default function Payments() {
                       <button className="btn btn-danger btn-sm" onClick={() => remove(p.id)}>Удалить</button>
                     </td>
                   </tr>
-                ))}
+                )))}
                 <tr className="history-total-row">
                   <td colSpan={4}>Итого за месяц</td>
                   <td>{formatMoney(group.total)}</td>
@@ -189,6 +205,12 @@ export default function Payments() {
             ))}
           </tbody>
         </table>
+        {payments.some((p) => p.fromCarry) && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+            🔄 — оплачено из остатка прошлого месяца (в «Итого за месяц» не входит). Изменить, кому зачтён остаток, —
+            в блоке «Перенос остатка с прошлого месяца» выше.
+          </div>
+        )}
       </div>
     </div>
   );

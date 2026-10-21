@@ -3,6 +3,7 @@ const TrainerModel = require('../models/Trainer');
 const { logAudit } = require('../utils/audit');
 const { canApplyDiscount, rateWithDiscount } = require('../utils/discount');
 const config = require('../config/default');
+const { listCarryHistoryEntries } = require('../services/carryHistory.service');
 
 function serializePayment(payment) {
   return {
@@ -37,7 +38,8 @@ async function listMonth(req, res, next) {
 async function listHistory(req, res, next) {
   try {
     const payments = await PaymentModel.listAll();
-    res.json(payments.map(serializePayment));
+    const carries = await listCarryHistoryEntries();
+    res.json([...payments.map(serializePayment), ...carries]);
   } catch (err) {
     next(err);
   }

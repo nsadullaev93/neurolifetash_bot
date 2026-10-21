@@ -51,6 +51,15 @@ async function listCarriedInto(year, month) {
   });
 }
 
+// Все перенесённые остатки — для строк «зачтено из остатка» в истории оплат.
+async function listCarriedOver() {
+  return prisma.settlement.findMany({
+    where: { status: 'CARRIED_OVER' },
+    include: { trainer: true, carriedToTrainer: true },
+    orderBy: [{ year: 'asc' }, { month: 'asc' }, { trainerId: 'asc' }],
+  });
+}
+
 async function findById(id) {
   return prisma.settlement.findUnique({ where: { id: Number(id) } });
 }
@@ -70,6 +79,7 @@ module.exports = {
   upsert,
   update,
   listCarriedInto,
+  listCarriedOver,
   findById,
   setCarryTarget,
 };

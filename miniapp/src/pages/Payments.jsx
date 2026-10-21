@@ -12,9 +12,16 @@ function groupHistoryByMonth(history) {
     if (!map.has(key)) map.set(key, { year: p.year, month: p.month, items: [], total: 0 });
     const group = map.get(key);
     group.items.push(p);
-    group.total += p.totalAmount;
+    // Зачтённый остаток прошлого месяца — не новые деньги, в итог не входит.
+    if (!p.fromCarry) group.total += p.totalAmount;
   }
   return Array.from(map.values()).sort((a, b) => b.year - a.year || b.month - a.month);
+}
+
+// Подсказка к строке «из остатка»: чьи остатки и за какой месяц зачтены.
+function carryTitle(p) {
+  const parts = p.sources.map((s) => `${s.trainerName} ${formatMoney(s.amount)}`);
+  return `из остатка за ${RU_MONTHS_NOM[p.sources[0].month - 1].toLowerCase()}: ${parts.join(' + ')}`;
 }
 
 const now = new Date();
@@ -335,10 +342,16 @@ export default function Payments() {
                   </tr>
                   {group.items.map((p) => (
                     <tr key={p.id}>
-                      <td>{p.trainerName}</td>
-                      <td>{p.paidSessions}</td>
+                      <td>
+                        {p.trainerName}
+                        {p.fromCarry && (
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{carryTitle(p)}</div>
+                        )}
+                      </td>
+                      <td>{p.fromCarry ? '—' : p.paidSessions}</td>
                       <td>
                         {formatMoney(p.totalAmount)}
+                        {p.fromCarry && <span> 🔄</span>}
                         {p.discountApplied && <span title="Применена скидка 10%"> 🏷️</span>}
                       </td>
                     </tr>
@@ -351,6 +364,11 @@ export default function Payments() {
               ))}
             </tbody>
           </table>
+        )}
+        {history.some((p) => p.fromCarry) && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+            🔄 — оплачено из остатка прошлого месяца (в «Итого» не входит)
+          </div>
         )}
       </div>
     </div>
