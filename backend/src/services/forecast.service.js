@@ -136,6 +136,10 @@ async function calculatePaymentStatus(year, month) {
       trainerId: b.trainerId,
       trainerName: b.trainerName,
       toPay: b.amount,
+      // Для формы «Внести оплату»: сумму предлагать уже за вычетом переноса.
+      plan: b.plan,
+      rate: b.rate,
+      carryBalance: b.carryBalance,
       paidAmount,
       remaining: Math.max(b.amount - paidAmount, 0),
       status,

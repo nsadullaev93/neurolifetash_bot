@@ -322,6 +322,26 @@ button, input, select {
 .balance-amount.red { color: var(--red); }
 .balance-amount.gray { color: var(--gray); }
 
+.confirm-box {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--gray-bg);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.confirm-actions .btn {
+  flex: 1;
+}
+
 .recon-list {
   padding-top: 4px;
   padding-bottom: 4px;

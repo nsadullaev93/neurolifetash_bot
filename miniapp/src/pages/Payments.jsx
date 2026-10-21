@@ -56,6 +56,7 @@ export default function Payments() {
   const [totalAmount, setTotalAmount] = useState('');
   const [discountApplied, setDiscountApplied] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [confirming, setConfirming] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -124,6 +125,11 @@ export default function Payments() {
     }
   }, [payments, trainerId]);
 
+  // Любое изменение формы прячет сводку — подтверждать нужно актуальные цифры.
+  useEffect(() => {
+    setConfirming(false);
+  }, [trainerId, year, month, paidSessions, totalAmount, discountApplied]);
+
   function selectTrainer(id) {
     setTrainerId(id);
   }
@@ -137,11 +143,19 @@ export default function Payments() {
     setYear(y);
   }
 
+  // Перенос остатка прошлого месяца, зачтённый выбранному специалисту
+  // (21.10.2026: за Вана форма предлагала 9 × 308 000 = 2 772 000, хотя
+  // 1 244 000 уже было оплачено переносом и платить надо было 1 528 000).
+  // Вычитается только из первой оплаты месяца — при повторной/редактируемой
+  // перенос уже учтён.
+  const statusRow = paymentStatus?.rows.find((r) => String(r.trainerId) === String(trainerId));
+  const carry = !editingId && statusRow?.carryBalance ? statusRow.carryBalance : 0;
+
   function recomputeTotal(sessionsValue, discount) {
     const trainer = trainers.find((t) => String(t.id) === String(trainerId));
     if (trainer && sessionsValue !== '') {
       const rate = discount ? Math.round(trainer.level.rate * (1 - DISCOUNT_RATE)) : trainer.level.rate;
-      setTotalAmount(String(Number(sessionsValue) * rate));
+      setTotalAmount(String(Math.max(Number(sessionsValue) * rate - carry, 0)));
     }
   }
 
@@ -158,10 +172,19 @@ export default function Payments() {
     recomputeTotal(paidSessions, checked);
   }
 
-  async function submit(e) {
+  // Отправка формы (кнопкой или «Готово» на клавиатуре телефона) только
+  // показывает сводку — сохраняется оплата отдельной кнопкой «Подтвердить»
+  // (21.10.2026: «Готово» на iPhone сохранило оплату без подтверждения).
+  function submit(e) {
     e.preventDefault();
     setError('');
     setSuccess('');
+    if (document.activeElement) document.activeElement.blur();
+    setConfirming(true);
+  }
+
+  async function confirmSave() {
+    setError('');
     try {
       const payload = {
         year,
@@ -176,9 +199,11 @@ export default function Payments() {
       } else {
         await api.createPayment(payload);
       }
+      setConfirming(false);
       setSuccess('Оплата сохранена');
       await load();
     } catch (err) {
+      setConfirming(false);
       setError(err.message);
     }
   }
@@ -293,6 +318,15 @@ export default function Payments() {
             onChange={(e) => setTotalAmount(e.target.value)}
             required
           />
+          {carry !== 0 && selectedTrainer && (
+            <div className="hint-text" style={{ marginTop: 6 }}>
+              🔄 Вычтен перенос с прошлого месяца: {formatMoney(carry)}
+              {paidSessions !== '' && (
+                <> ({paidSessions} × {formatMoney(selectedTrainer.level.rate)} − {formatMoney(carry)})</>
+              )}
+              . Сумму можно исправить вручную — укажите, сколько фактически заплатили.
+            </div>
+          )}
         </div>
 
         {Number(paidSessions) >= DISCOUNT_THRESHOLD && (
@@ -316,9 +350,24 @@ export default function Payments() {
           </div>
         )}
 
-        <button className="btn btn-primary" type="submit" style={{ marginTop: 6 }}>
-          {editingId ? 'Обновить оплату' : 'Сохранить оплату'}
-        </button>
+        {confirming ? (
+          <div className="confirm-box">
+            <div className="balance-name" style={{ marginBottom: 6 }}>Проверьте оплату</div>
+            <div>{selectedTrainer?.name}, {RU_MONTHS_NOM[month - 1].toLowerCase()} {year}</div>
+            <div>Занятий: <b>{paidSessions}</b></div>
+            <div>Сумма: <b>{formatMoney(Number(totalAmount))}</b></div>
+            {carry !== 0 && <div className="balance-detail">+ перенос с прошлого месяца {formatMoney(carry)}</div>}
+            {editingId && <div className="balance-detail">Заменит уже внесённую оплату за этот месяц.</div>}
+            <div className="confirm-actions">
+              <button className="btn btn-secondary" type="button" onClick={() => setConfirming(false)}>Изменить</button>
+              <button className="btn btn-primary" type="button" onClick={confirmSave}>Подтвердить</button>
+            </div>
+          </div>
+        ) : (
+          <button className="btn btn-primary" type="submit" style={{ marginTop: 6 }}>
+            {editingId ? 'Обновить оплату' : 'Сохранить оплату'}
+          </button>
+        )}
       </form>
 
       <div className="section-title">История оплат</div>
