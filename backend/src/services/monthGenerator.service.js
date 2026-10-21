@@ -21,12 +21,25 @@ async function pausesByTrainerForMonth(year, month) {
 // never touched. Dates covered by a TrainerPause (§2.6.1) for that specific
 // trainer are skipped entirely — paused specialist's sessions should not
 // appear in the schedule/calendar at all, not just be excluded from money.
+//
+// Never backfills dates BEFORE today (regression 21.10.2026): this runs
+// automatically every night at 00:05 AND on every process start/restart
+// (index.js) — if a brand-new ScheduleSlot is added mid-month (e.g. a
+// substitute specialist), the next automatic run used to loop the WHOLE
+// month including already-past days, and since no session existed yet for
+// that new slot on those past dates, it happily invented fresh PLANNED
+// sessions for days that had already happened — 13 phantom sessions for a
+// specialist who only started mid-month, cluttering the whole calendar.
+// Deliberately backdating IS still possible — that is what
+// regenerateFromDate (the admin's "Применить изменения с даты" button) is
+// for, and it is untouched by this guard; this one only protects the
+// unattended automatic path from doing it by accident.
 async function generateMonth(year, month) {
   const childId = await getChildId();
   const slots = await ScheduleSlotModel.listActive();
   const closedDays = await ClosedDayModel.listForMonth(year, month);
   const closedSet = new Set(closedDays.map((c) => c.date.toISOString().slice(0, 10)));
-  const monthDates = getMonthDateList(year, month);
+  const monthDates = getMonthDateList(year, month).filter((d) => d >= todayDateOnly());
   const pausesByTrainer = await pausesByTrainerForMonth(year, month);
 
   let created = 0;
